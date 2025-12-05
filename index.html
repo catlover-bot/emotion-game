@@ -1,7 +1,45 @@
-<body>
-  <div id="app">
-    <video id="video" autoplay playsinline style="display: none;"></video>
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Emotion Game</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        color: #fff;
+        height: 100%;
+        overflow: hidden;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      #gameCanvas {
+        flex: 1;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+      #video {
+        display: none; /* カメラ映像は裏で使うだけ */
+      }
+    </style>
+  </head>
+  <body>
+    <!-- face-api 用の video 要素 -->
+    <video id="video" playsinline></video>
+
+    <!-- キャラクターを描画する Canvas -->
     <canvas id="gameCanvas"></canvas>
-  </div>
-  <script type="module" src="/src/main.ts"></script>
-</body>
+
+    <!-- Vite のエントリ。開発中は /src/main.ts、build 時に自動で書き換わる -->
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
