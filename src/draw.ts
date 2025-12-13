@@ -1,5 +1,6 @@
 // src/draw.ts
 import type { Bomb, Star, Wave, LikeParticle } from "./gameTypes";
+import { gameOverButtons } from "./uiRects";
 import type { Expression } from "./types";
 import type {
   CharacterSkinColors,
@@ -631,10 +632,22 @@ export function drawGameOverOverlay(
     maxCombo: number;
     rank: string;
     showContinueHint: boolean;
+
+    // 追加
+    dailyBest: number;
+    isNewDailyRecord: boolean;
   },
 ) {
   const { ctx, width, height } = dc;
-  const { gameOver, score, maxCombo, rank, showContinueHint } = params;
+  const {
+    gameOver,
+    score,
+    maxCombo,
+    rank,
+    showContinueHint,
+    dailyBest,
+    isNewDailyRecord,
+  } = params;
 
   if (!gameOver) return;
 
@@ -648,32 +661,68 @@ export function drawGameOverOverlay(
 
   ctx.fillStyle = "#ffffff";
   ctx.font = "40px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.fillText("GAME OVER", w / 2, h / 2 - 80);
+  ctx.fillText("GAME OVER", w / 2, h / 2 - 90);
 
   ctx.font = "26px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.fillText(`SCORE: ${score}`, w / 2, h / 2 - 30);
-  ctx.fillText(`MAX COMBO: ×${maxCombo}`, w / 2, h / 2 + 10);
+  ctx.fillText(`SCORE: ${score}`, w / 2, h / 2 - 40);
+  ctx.fillText(`MAX COMBO: ×${maxCombo}`, w / 2, h / 2);
 
   ctx.fillStyle = "#facc15";
   ctx.font = "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.fillText(rank, w / 2, h / 2 + 50);
+  ctx.fillText(rank, w / 2, h / 2 + 46);
+
+  // Daily best
+  ctx.font = "18px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  ctx.fillStyle = isNewDailyRecord ? "#34d399" : "#e5e7eb";
+  const badge = isNewDailyRecord ? "NEW DAILY BEST!" : "TODAY BEST";
+  ctx.fillText(`${badge}: ${dailyBest}`, w / 2, h / 2 + 82);
 
   ctx.fillStyle = "#e5e7eb";
   ctx.font = "16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-
   if (showContinueHint) {
     ctx.fillText(
       "ニコッと笑顔（happy）をしばらく続けるとコンテニューします",
       w / 2,
-      h / 2 + 100,
+      h / 2 + 112,
     );
   } else {
     ctx.fillText(
       "少し待ってから笑顔になるとコンテニューできます",
       w / 2,
-      h / 2 + 100,
+      h / 2 + 112,
     );
   }
+
+  // Buttons
+  const { share, retry } = gameOverButtons(w, h);
+
+  const drawBtn = (r: { x: number; y: number; w: number; h: number }, label: string) => {
+    ctx.save();
+    ctx.fillStyle = "rgba(2,6,23,0.92)";
+    ctx.strokeStyle = "rgba(255,255,255,0.22)";
+    ctx.lineWidth = 2;
+
+    // rounded rect
+    const rad = 14;
+    ctx.beginPath();
+    ctx.moveTo(r.x + rad, r.y);
+    ctx.arcTo(r.x + r.w, r.y, r.x + r.w, r.y + r.h, rad);
+    ctx.arcTo(r.x + r.w, r.y + r.h, r.x, r.y + r.h, rad);
+    ctx.arcTo(r.x, r.y + r.h, r.x, r.y, rad);
+    ctx.arcTo(r.x, r.y, r.x + r.w, r.y, rad);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "20px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, r.x + r.w / 2, r.y + r.h / 2);
+    ctx.restore();
+  };
+
+  drawBtn(share, "Share");
+  drawBtn(retry, "Retry");
 
   ctx.textAlign = "left";
 }
