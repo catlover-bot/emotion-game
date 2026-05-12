@@ -3,7 +3,6 @@ import { getRequiredVideo, getRequiredCanvas } from "./dom";
 import { setupCamera } from "./camera";
 import { createGame } from "./game";
 import { setupFaceModels, startExpressionLoop } from "./face";
-import type { Expression } from "./types";
 
 function isMobileLike(): boolean {
   const ua = navigator.userAgent || "";
@@ -68,8 +67,7 @@ async function main() {
 
   // iOS Safari 安全策：明示（camera.ts 側でもやっているが二重にしてよい）
   video.setAttribute("playsinline", "true");
-  // @ts-expect-error iOS向け
-  (video as any).playsInline = true;
+  video.playsInline = true;
 
   // 1) カメラ起動（失敗したらゲーム画面に案内を出して終了）
   try {
@@ -110,24 +108,20 @@ async function main() {
     }
   }
 
-  let currentExpression: Expression = "neutral";
 
   // 5) 表情ループ開始：取れたら反映、取れないなら neutral 維持
   if (faceReady) {
     try {
       startExpressionLoop(video, (exp) => {
-        currentExpression = exp;
         game.setExpression(exp);
       });
     } catch (e) {
       console.error("表情ループ開始に失敗:", e);
       // フォールバック
-      currentExpression = "neutral";
       game.setExpression("neutral");
     }
   } else {
     // face-api 無し：ニュートラル固定で動かす
-    currentExpression = "neutral";
     game.setExpression("neutral");
   }
 }

@@ -1048,6 +1048,8 @@ export function createGame(canvas: HTMLCanvasElement): Game {
         maxCombo,
         rank: getRank(score),
         showContinueHint,
+        dailyBest,
+        isNewDailyRecord,
       });
 
       // 追加UI（draw.ts を変えずに上乗せ）
