@@ -1,134 +1,248 @@
-// src/main.ts
-import { getRequiredVideo, getRequiredCanvas } from "./dom";
-import { setupCamera } from "./camera";
-import { createGame } from "./game";
+import "./style.css";
+
+import { getRequiredCanvas, getRequiredHtmlElement, getRequiredVideo } from "./dom";
+import { CameraSetupError, setupCamera, stopCamera } from "./camera";
+import { clearOwnedCosmetics } from "./cosmetics";
+import { createGame, type Game } from "./game";
 import { setupFaceModels, startExpressionLoop } from "./face";
+import { createAppShell, type CameraUiState } from "./appShell";
+import {
+  clearAppStorage,
+  loadOnboardingComplete,
+  loadTutorialComplete,
+  resetTutorialComplete,
+  saveOnboardingComplete,
+  saveTutorialComplete,
+} from "./storage";
+import type { Expression } from "./types";
 
-function isMobileLike(): boolean {
-  const ua = navigator.userAgent || "";
-  return /iPhone|iPad|iPod|Android/i.test(ua);
-}
-
-function showFatalOverlay(canvas: HTMLCanvasElement, title: string, message: string) {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  const w = canvas.width;
-  const h = canvas.height;
-
-  ctx.save();
-  ctx.fillStyle = "rgba(15,23,42,0.92)";
-  ctx.fillRect(0, 0, w, h);
-
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "28px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.fillText(title, w / 2, h / 2 - 40);
-
-  ctx.fillStyle = "#e5e7eb";
-  ctx.font = "16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  const lines = message.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i] ?? "", w / 2, h / 2 + i * 22);
-  }
-
-  ctx.restore();
-}
-
-function bindTapToGame(canvas: HTMLCanvasElement, game: { tap?: (x: number, y: number) => void }) {
-  if (!game.tap) return;
-
+function bindTapToGame(canvas: HTMLCanvasElement, game: Pick<Game, "tap">) {
   const handler = (clientX: number, clientY: number) => {
-    const r = canvas.getBoundingClientRect();
-    // Canvas座標（canvas.width/heightは論理px）
-    const x = (clientX - r.left) * (canvas.width / r.width);
-    const y = (clientY - r.top) * (canvas.height / r.height);
-    game.tap!(x, y);
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    game.tap(x, y);
   };
 
-  // pointerdown が最も汎用（iOS SafariもOK）
-  canvas.addEventListener("pointerdown", (e) => {
-    handler(e.clientX, e.clientY);
+  canvas.addEventListener("pointerdown", (event) => {
+    handler(event.clientX, event.clientY);
   });
 
-  // iOSで pointer が怪しい環境の保険（ごく稀）
-  canvas.addEventListener("touchstart", (e) => {
-    const t = e.touches?.[0];
-    if (!t) return;
-    handler(t.clientX, t.clientY);
-  }, { passive: true });
+  canvas.addEventListener(
+    "touchstart",
+    (event) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      handler(touch.clientX, touch.clientY);
+    },
+    { passive: true },
+  );
 }
 
 async function main() {
-  console.log("main start");
-
   const video = getRequiredVideo("video");
   const canvas = getRequiredCanvas("gameCanvas");
+  const uiRoot = getRequiredHtmlElement("uiRoot", HTMLDivElement);
 
-  // iOS Safari 安全策：明示（camera.ts 側でもやっているが二重にしてよい）
   video.setAttribute("playsinline", "true");
   video.playsInline = true;
 
-  // 1) カメラ起動（失敗したらゲーム画面に案内を出して終了）
-  try {
-    await setupCamera(video);
-  } catch (e) {
-    console.error(e);
-    // canvas が既に存在するので、アラートだけでなく画面にも出す
-    showFatalOverlay(
-      canvas,
-      "Camera Permission Required",
-      "カメラが許可されていません。\nブラウザ設定でカメラを許可して再読み込みしてください。",
-    );
-    alert("カメラへのアクセスが拒否されました。設定からカメラを許可してください。");
-    return;
-  }
-
-  // 2) ゲーム本体初期化（face-api が失敗してもゲームは動く）
   const game = createGame(canvas);
-
-  // 3) Share/Retry 用：タップを game.tap に流す
   bindTapToGame(canvas, game);
 
-  // 4) face-api モデル読み込み
-  let faceReady = false;
-  try {
-    await setupFaceModels();
-    faceReady = true;
-  } catch (e) {
-    console.error("face-api モデル読み込みに失敗しました:", e);
-    // モデルなしでもゲームが動くようにする（表情入力は neutral 固定）
-    faceReady = false;
+  let onboardingComplete = loadOnboardingComplete();
+  let tutorialComplete = loadTutorialComplete();
+  let currentExpression: Expression = "neutral";
+  let cameraState: CameraUiState = "idle";
+  let faceLoopStarted = false;
+  let pendingStartAfterTutorial = false;
 
-    // モバイルは通信で落ちやすいので、案内は軽めに
-    if (!isMobileLike()) {
-      alert(
-        "表情認識用モデルの読み込みに失敗しました。\nネットワーク環境を確認してください。（ゲーム自体は動作します）",
-      );
-    }
+  const appShell = createAppShell({
+    root: uiRoot,
+    onStartGame() {
+      if (!tutorialComplete) {
+        pendingStartAfterTutorial = true;
+        appShell.showPractice("start");
+        routeExpression();
+        return;
+      }
+
+      pendingStartAfterTutorial = false;
+      appShell.closeOverlay();
+      game.startRun();
+      routeExpression();
+    },
+    onOpenCustomize() {
+      appShell.closeOverlay();
+      game.openCustomize();
+      routeExpression();
+    },
+    onOpenGacha() {
+      appShell.closeOverlay();
+      game.openGacha();
+      routeExpression();
+    },
+    onBackToTitle() {
+      pendingStartAfterTutorial = false;
+      appShell.closeOverlay();
+      game.goToTitle();
+      routeExpression();
+    },
+    onCycleCharacter() {
+      game.cycleCharacter();
+    },
+    onCycleBackground() {
+      game.cycleBackground();
+    },
+    onRollGacha() {
+      game.rollGachaAction();
+    },
+    onShare() {
+      void game.share();
+    },
+    onRetryGame() {
+      appShell.closeOverlay();
+      game.retry();
+      routeExpression();
+    },
+    onEnableCamera() {
+      void enableCamera();
+    },
+    onContinueWithoutCamera() {
+      finishOnboarding();
+      pendingStartAfterTutorial = false;
+      appShell.closeOverlay();
+      routeExpression();
+    },
+    onCloseOverlay() {
+      if (appShell.getOverlay() === "onboarding") {
+        finishOnboarding();
+      }
+      pendingStartAfterTutorial = false;
+      appShell.closeOverlay();
+      routeExpression();
+    },
+    onFinishTutorial() {
+      tutorialComplete = true;
+      saveTutorialComplete(true);
+      appShell.closeOverlay();
+      if (pendingStartAfterTutorial) {
+        pendingStartAfterTutorial = false;
+        game.startRun();
+      }
+      routeExpression();
+    },
+    onTouchAction(action) {
+      game.triggerAction(action);
+    },
+    onOverlayChanged() {
+      routeExpression();
+    },
+    onResetTutorial() {
+      tutorialComplete = false;
+      resetTutorialComplete();
+    },
+    onResetData() {
+      clearOwnedCosmetics();
+      clearAppStorage();
+      window.location.reload();
+    },
+  });
+
+  game.subscribe((snapshot) => {
+    appShell.setGameSnapshot(snapshot);
+  });
+
+  function routeExpression() {
+    game.setExpression(appShell.isBlockingGameInput() ? "neutral" : currentExpression);
   }
 
+  function finishOnboarding() {
+    if (onboardingComplete) return;
+    onboardingComplete = true;
+    saveOnboardingComplete(true);
+  }
 
-  // 5) 表情ループ開始：取れたら反映、取れないなら neutral 維持
-  if (faceReady) {
+  function setCameraUi(nextState: CameraUiState, message: string) {
+    cameraState = nextState;
+    appShell.setCameraState(nextState, message);
+    routeExpression();
+  }
+
+  async function enableCamera() {
+    if (cameraState === "requesting" || cameraState === "ready") return;
+
+    finishOnboarding();
+    setCameraUi("requesting", "カメラの許可を確認しています...");
+
     try {
-      startExpressionLoop(video, (exp) => {
-        game.setExpression(exp);
-      });
-    } catch (e) {
-      console.error("表情ループ開始に失敗:", e);
-      // フォールバック
-      game.setExpression("neutral");
+      await setupCamera(video);
+      setCameraUi("requesting", "表情認識の準備をしています...");
+      try {
+        await setupFaceModels();
+      } catch {
+        stopCamera(video);
+        setCameraUi("error", "表情認識の準備に失敗しました。いまはタップ操作で遊べます。");
+        return;
+      }
+
+      if (!faceLoopStarted) {
+        startExpressionLoop(video, (expression) => {
+          currentExpression = expression;
+          appShell.setExpression(expression);
+          routeExpression();
+        });
+        faceLoopStarted = true;
+      }
+
+      setCameraUi("ready", "表情認識の準備ができました。");
+    } catch (error) {
+      currentExpression = "neutral";
+      appShell.setExpression("neutral");
+
+      if (error instanceof CameraSetupError) {
+        if (error.kind === "denied") {
+          setCameraUi("denied", "カメラの許可がオフです。あとから設定でオンにできます。");
+          return;
+        }
+
+        if (error.kind === "unsupported") {
+          setCameraUi("unsupported", "この端末やブラウザではカメラ機能を利用できません。");
+          return;
+        }
+
+        if (error.kind === "unavailable") {
+          setCameraUi("error", "カメラが見つからないか、ほかのアプリで使用中です。");
+          return;
+        }
+
+        setCameraUi("error", "カメラを起動できませんでした。");
+        return;
+      }
+
+      const message =
+        error instanceof Error ? error.message : "カメラで不明なエラーが発生しました。";
+      setCameraUi("error", message);
     }
-  } else {
-    // face-api 無し：ニュートラル固定で動かす
-    game.setExpression("neutral");
   }
+
+  window.addEventListener("pagehide", () => {
+    stopCamera(video);
+  });
+
+  appShell.setExpression(currentExpression);
+
+  if (!onboardingComplete) {
+    appShell.showOnboarding();
+  } else {
+    appShell.closeOverlay();
+  }
+
+  routeExpression();
 }
 
 window.addEventListener("load", () => {
-  main().catch((e) => {
-    console.error("起動時に致命的なエラー:", e);
-    // ここで alert を出すと iOS でブロックされることがあるので console のみにする
+  main().catch((error) => {
+    console.error("起動時に致命的なエラー:", error);
   });
 });

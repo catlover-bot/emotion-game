@@ -19,7 +19,9 @@ import {
   drawLikeParticles,
 } from "./draw";
 import type { DrawContext } from "./draw";
+import { contains, gameOverButtons } from "./uiRects";
 import {
+  type Rarity,
   loadOwnedCosmetics,
   saveOwnedCosmetics,
   findCharacterSkin,
@@ -28,17 +30,49 @@ import {
   rollGacha,
   cycleCharacterSkin,
   cycleBackgroundSkin,
+  GACHA_COST,
   type OwnedCosmetics,
 } from "./cosmetics";
 import { shareResultImage } from "./share";
 import { dailySeed } from "./dailySeed";
+import { DAILY_BEST_PREFIX } from "./storage";
+
+export type Scene = "title" | "play" | "customize" | "gacha";
+export type GameAction = "jump" | "attack" | "boost";
+export type GameSnapshot = {
+  scene: Scene;
+  gameOver: boolean;
+  score: number;
+  maxCombo: number;
+  dailyBest: number;
+  isNewDailyRecord: boolean;
+  rank: string;
+  coins: number;
+  charName: string;
+  charRarity: Rarity;
+  bgName: string;
+  bgRarity: Rarity;
+  gachaMessage: string | null;
+  gachaCost: number;
+  canRollGacha: boolean;
+};
 
 export type Game = {
   setExpression(exp: Expression): void;
-  tap(x: number, y: number): void; // 追加：GAME OVER中の Share/Retry タップ
+  tap(x: number, y: number): void;
+  getSnapshot(): GameSnapshot;
+  subscribe(listener: (snapshot: GameSnapshot) => void): () => void;
+  startRun(): void;
+  retry(): void;
+  goToTitle(): void;
+  openCustomize(): void;
+  openGacha(): void;
+  cycleCharacter(): void;
+  cycleBackground(): void;
+  rollGachaAction(): void;
+  triggerAction(action: GameAction): void;
+  share(): Promise<void>;
 };
-
-type Scene = "title" | "play" | "customize" | "gacha";
 
 // ====== Daily / RNG ======
 function todayKey(): string {
@@ -49,7 +83,7 @@ function todayKey(): string {
   return `${y}-${m}-${day}`;
 }
 function dailyBestStorageKey(): string {
-  return `emotion_game_daily_best_${todayKey()}`;
+  return `${DAILY_BEST_PREFIX}${todayKey()}`;
 }
 function loadDailyBest(): number {
   try {
@@ -80,32 +114,6 @@ function mulberry32(seed: number) {
   };
 }
 
-// ====== UI Rects (game.ts 内完結) ======
-type Rect = { x: number; y: number; w: number; h: number };
-function contains(r: Rect, x: number, y: number): boolean {
-  return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
-}
-function gameOverButtons(w: number, h: number): { share: Rect; retry: Rect } {
-  const bw = Math.min(320, w * 0.78);
-  const bh = 56;
-  const cx = (w - bw) / 2;
-  const y0 = h / 2 + 140; // drawGameOverOverlay の下あたり
-  return {
-    share: { x: cx, y: y0, w: bw, h: bh },
-    retry: { x: cx, y: y0 + bh + 16, w: bw, h: bh },
-  };
-}
-function drawRoundedRect(ctx: CanvasRenderingContext2D, r: Rect, radius = 14) {
-  const { x, y, w, h } = r;
-  const rad = Math.min(radius, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rad, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rad);
-  ctx.arcTo(x + w, y + h, x, y + h, rad);
-  ctx.arcTo(x, y + h, x, y, rad);
-  ctx.arcTo(x, y, x + w, y, rad);
-  ctx.closePath();
-}
 
 export function createGame(canvas: HTMLCanvasElement): Game {
   const ctxRaw = canvas.getContext("2d");
@@ -113,11 +121,20 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     throw new Error("2Dコンテキストを取得できませんでした");
   }
   const ctx: CanvasRenderingContext2D = ctxRaw;
+  const appName = "表情ランナー";
 
-  // レイアウト（現状踏襲：DPRは後段で改善可）
+  let viewportWidth = 0;
+  let viewportHeight = 0;
+  let dpr = 1;
+
   function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    const rect = canvas.getBoundingClientRect();
+    viewportWidth = Math.max(1, Math.round(rect.width || window.innerWidth));
+    viewportHeight = Math.max(1, Math.round(rect.height || window.innerHeight));
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(viewportWidth * dpr);
+    canvas.height = Math.round(viewportHeight * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
@@ -125,8 +142,8 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   // ===== ゲーム内部状態 =====
   let currentExpression: Expression = "neutral";
 
-  const width = () => canvas.width;
-  const height = () => canvas.height;
+  const width = () => viewportWidth;
+  const height = () => viewportHeight;
 
   // 現在のシーン
   let scene: Scene = "title";
@@ -173,9 +190,17 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
   // コイン＆スキン管理（ドメイン：cosmetics）
   let cosmetics: OwnedCosmetics = loadOwnedCosmetics();
+  const listeners = new Set<(snapshot: GameSnapshot) => void>();
+  let snapshotDirty = true;
+
+  function markSnapshotDirty() {
+    snapshotDirty = true;
+  }
+
   function updateCosmetics(next: OwnedCosmetics) {
     cosmetics = next;
     saveOwnedCosmetics(next);
+    markSnapshotDirty();
   }
 
   // ガチャメッセージ / コイン獲得メッセージ
@@ -244,6 +269,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
   let gachaHappyTicks = 0;
   let gachaSadTicks = 0;
+  let manualBoostTicks = 0;
 
   // ===== ユーティリティ =====
 
@@ -349,6 +375,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
     life -= 1;
     breakCombo();
+    markSnapshotDirty();
 
     // 残りライフが 0 以下になるとき、一度だけ神回避のチャンス
     if (
@@ -381,6 +408,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
       // Daily best / bonus
       updateDailyBestOnGameOver();
+      markSnapshotDirty();
     }
   }
 
@@ -440,6 +468,55 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     return "表情修行中";
   }
 
+  function resetMenuHoldCounters() {
+    titleHappyTicks = 0;
+    titleAngryTicks = 0;
+    titleSurprisedTicks = 0;
+    customizeHappyTicks = 0;
+    customizeAngryTicks = 0;
+    customizeSadTicks = 0;
+    customizeSurprisedTicks = 0;
+    gachaHappyTicks = 0;
+    gachaSadTicks = 0;
+  }
+
+  function setScene(nextScene: Scene) {
+    scene = nextScene;
+    resetMenuHoldCounters();
+    markSnapshotDirty();
+  }
+
+  function getSnapshot(): GameSnapshot {
+    const charSkin = findCharacterSkin(cosmetics.equippedCharacterSkinId);
+    const bgSkin = findBackgroundSkin(cosmetics.equippedBackgroundSkinId);
+    return {
+      scene,
+      gameOver,
+      score,
+      maxCombo,
+      dailyBest,
+      isNewDailyRecord,
+      rank: getRank(score),
+      coins: cosmetics.coins,
+      charName: charSkin.name,
+      charRarity: charSkin.rarity,
+      bgName: bgSkin.name,
+      bgRarity: bgSkin.rarity,
+      gachaMessage: lastGachaMessage,
+      gachaCost: GACHA_COST,
+      canRollGacha: canRollGacha(cosmetics),
+    };
+  }
+
+  function emitSnapshot() {
+    if (!snapshotDirty) return;
+    snapshotDirty = false;
+    const snapshot = getSnapshot();
+    for (const listener of listeners) {
+      listener(snapshot);
+    }
+  }
+
   function getCurrentMissionText(): string {
     const publicState: PublicState = {
       score,
@@ -470,6 +547,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
     // 次のトレンド登場は少しあと
     nextTrendTick = tick + 1200; // だいたい20秒後ぐらい
+    markSnapshotDirty();
   }
 
   function updateTrend() {
@@ -489,6 +567,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     // 時間切れ
     if (tick >= trend.endTick && !trend.success) {
       trend.active = false;
+      markSnapshotDirty();
       return;
     }
 
@@ -508,6 +587,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       addScore(1500);
       feverGauge = Math.min(100, feverGauge + 35);
       spawnLikeShower(playerX, playerY - 40);
+      markSnapshotDirty();
     }
   }
 
@@ -576,6 +656,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     gameOverTick = null;
     continueSmileTicks = 0;
     hasUsedClutchSave = false;
+    manualBoostTicks = 0;
 
     // トレンドチャレンジもリセット
     trend = null;
@@ -583,6 +664,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
     // Daily record 表示フラグ（新規プレイでは消す）
     isNewDailyRecord = false;
+    markSnapshotDirty();
   }
 
   // ゲームオーバー中に表情でコンテニュー判定
@@ -609,6 +691,105 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     }
   }
 
+  function startRun() {
+    resetGame();
+    setScene("play");
+    spawnLikeShower(width() / 2, groundY() - 80);
+  }
+
+  function goToTitle() {
+    setScene("title");
+  }
+
+  function openCustomize() {
+    setScene("customize");
+  }
+
+  function openGacha() {
+    setScene("gacha");
+  }
+
+  function cycleCharacter() {
+    if (scene !== "customize") return;
+    const next = cycleCharacterSkin(cosmetics);
+    if (next !== cosmetics) {
+      updateCosmetics(next);
+      spawnLikeShower(width() / 2, groundY() - 40);
+      markSnapshotDirty();
+    }
+  }
+
+  function cycleBackground() {
+    if (scene !== "customize") return;
+    const next = cycleBackgroundSkin(cosmetics);
+    if (next !== cosmetics) {
+      updateCosmetics(next);
+      spawnLikeShower(width() / 2, groundY() - 80);
+      markSnapshotDirty();
+    }
+  }
+
+  function runGacha() {
+    if (scene !== "gacha") return;
+    if (!canRollGacha(cosmetics)) {
+      lastGachaMessage = "コインが足りません… (笑顔をキープしてガチャ)";
+      lastGachaTick = tick;
+      markSnapshotDirty();
+      return;
+    }
+
+    try {
+      const { state, result } = rollGacha(cosmetics);
+      updateCosmetics(state);
+      const kind = result.type === "character" ? "キャラ衣装" : "背景スキン";
+      const rarityLabel =
+        result.rarity === "legendary"
+          ? "レジェンダリー"
+          : result.rarity === "epic"
+            ? "エピック"
+            : result.rarity === "rare"
+              ? "レア"
+              : "ノーマル";
+      const newStr = result.isNew ? "新しく追加！" : "すでに所持済み";
+      lastGachaMessage = `${kind} を入手 (${rarityLabel}) ${newStr}`;
+      lastGachaTick = tick;
+      spawnLikeShower(width() / 2, height() / 2);
+    } catch {
+      lastGachaMessage = "ガチャエラーが発生しました";
+      lastGachaTick = tick;
+    }
+
+    markSnapshotDirty();
+  }
+
+  function performJump() {
+    if (scene !== "play" || gameOver) return;
+    if (!isOnGround || tick - lastHappyTick <= HAPPY_COOLDOWN) return;
+
+    const gY = groundY();
+    playerVy = -15.5;
+    isOnGround = false;
+    lastHappyTick = tick;
+    addCombo();
+    addScore(80);
+    spawnStar(playerX + 140, gY - 120);
+  }
+
+  function performAttack() {
+    if (scene !== "play" || gameOver) return;
+    if (tick - lastAngryTick <= ANGRY_COOLDOWN) return;
+
+    spawnWave();
+    lastAngryTick = tick;
+    addCombo();
+    addScore(60);
+  }
+
+  function triggerBoost() {
+    if (scene !== "play" || gameOver) return;
+    manualBoostTicks = Math.max(manualBoostTicks, 12);
+  }
+
   // ===== シーン別：表情での操作ロジック =====
 
   function updateTitleByExpression() {
@@ -625,22 +806,17 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
     // プレイ開始
     if (titleHappyTicks === HOLD_LONG) {
-      resetGame();
-      scene = "play";
-      spawnLikeShower(width() / 2, groundY() - 80);
-      titleHappyTicks = titleAngryTicks = titleSurprisedTicks = 0;
+      startRun();
     }
 
     // 着せ替えへ
     if (titleAngryTicks === HOLD_LONG) {
-      scene = "customize";
-      titleHappyTicks = titleAngryTicks = titleSurprisedTicks = 0;
+      openCustomize();
     }
 
     // ガチャへ
     if (titleSurprisedTicks === HOLD_LONG) {
-      scene = "gacha";
-      titleHappyTicks = titleAngryTicks = titleSurprisedTicks = 0;
+      openGacha();
     }
   }
 
@@ -661,30 +837,17 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
     // キャラ衣装切り替え
     if (customizeAngryTicks === HOLD_SHORT) {
-      const next = cycleCharacterSkin(cosmetics);
-      if (next !== cosmetics) {
-        updateCosmetics(next);
-        spawnLikeShower(width() / 2, groundY() - 40);
-      }
+      cycleCharacter();
     }
 
     // 背景スキン切り替え
     if (customizeSurprisedTicks === HOLD_SHORT) {
-      const next = cycleBackgroundSkin(cosmetics);
-      if (next !== cosmetics) {
-        updateCosmetics(next);
-        spawnLikeShower(width() / 2, groundY() - 80);
-      }
+      cycleBackground();
     }
 
     // happy or sad 長押しでタイトルへ戻る
     if (customizeHappyTicks === HOLD_LONG || customizeSadTicks === HOLD_LONG) {
-      scene = "title";
-      customizeHappyTicks =
-        customizeAngryTicks =
-        customizeSadTicks =
-        customizeSurprisedTicks =
-          0;
+      goToTitle();
     }
   }
 
@@ -699,37 +862,12 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
     // ガチャ実行
     if (gachaHappyTicks === HOLD_LONG) {
-      if (!canRollGacha(cosmetics)) {
-        lastGachaMessage = "コインが足りません… (笑顔をキープしてガチャ)";
-        lastGachaTick = tick;
-      } else {
-        try {
-          const { state, result } = rollGacha(cosmetics);
-          updateCosmetics(state);
-          const kind = result.type === "character" ? "キャラ衣装" : "背景スキン";
-          const rarityLabel =
-            result.rarity === "legendary"
-              ? "LEGENDARY"
-              : result.rarity === "epic"
-                ? "EPIC"
-                : result.rarity === "rare"
-                  ? "RARE"
-                  : "COMMON";
-          const newStr = result.isNew ? "NEW!!" : "既に所持";
-          lastGachaMessage = `${kind} を入手 (${rarityLabel}) ${newStr}`;
-          lastGachaTick = tick;
-          spawnLikeShower(width() / 2, height() / 2);
-        } catch {
-          lastGachaMessage = "ガチャエラーが発生しました";
-          lastGachaTick = tick;
-        }
-      }
+      runGacha();
     }
 
     // sad 長押しでタイトルへ戻る
     if (gachaSadTicks === HOLD_LONG) {
-      scene = "title";
-      gachaHappyTicks = gachaSadTicks = 0;
+      goToTitle();
     }
   }
 
@@ -739,38 +877,26 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     if (scene !== "play") return;
     const gY = groundY();
 
-    // ジャンプ（happy）
-    if (
-      currentExpression === "happy" &&
-      isOnGround &&
-      tick - lastHappyTick > HAPPY_COOLDOWN &&
-      !gameOver
-    ) {
-      playerVy = -15.5;
-      isOnGround = false;
-      lastHappyTick = tick;
-      addCombo();
-      addScore(80);
-      spawnStar(playerX + 140, gY - 120);
+    if (currentExpression === "happy") {
+      performJump();
     }
 
-    // 攻撃（angry）
-    if (
-      currentExpression === "angry" &&
-      tick - lastAngryTick > ANGRY_COOLDOWN &&
-      !gameOver
-    ) {
-      spawnWave();
-      lastAngryTick = tick;
-      addCombo();
-      addScore(60);
+    if (currentExpression === "angry") {
+      performAttack();
     }
 
-    // surprised は少しだけ前進ブースト
-    if (currentExpression === "surprised" && !gameOver) {
-      playerX += 0.6;
-    } else {
-      playerX += 0.1;
+    // surprised は少しだけ前進ブースト。タップ版は短時間だけ強めに押し出す。
+    if (!gameOver) {
+      const boostingByFace = currentExpression === "surprised";
+      const boostingByTouch = manualBoostTicks > 0;
+      if (boostingByFace) {
+        playerX += 0.65;
+      } else if (boostingByTouch) {
+        playerX += 1.0;
+        manualBoostTicks -= 1;
+      } else {
+        playerX += 0.1;
+      }
     }
 
     // sad はゲージを少しだけ減らす
@@ -877,69 +1003,32 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     }
   }
 
-  // ===== 追加：GAME OVER 上に Share/Retry + Daily 表示を描画 =====
-  function drawGameOverExtras() {
-    if (scene !== "play") return;
-    if (!gameOver) return;
-
-    const w = width();
-    const h = height();
-
-    // Daily表示（drawGameOverOverlayに追加していないのでここで上書き表示）
-    ctx.save();
-    ctx.textAlign = "center";
-    ctx.font = "18px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-    ctx.fillStyle = isNewDailyRecord ? "#34d399" : "#e5e7eb";
-    const badge = isNewDailyRecord ? "NEW DAILY BEST!" : "TODAY BEST";
-    ctx.fillText(`${badge}: ${dailyBest}`, w / 2, h / 2 + 84);
-
-    // Buttons
-    const { share, retry } = gameOverButtons(w, h);
-
-    const drawBtn = (r: Rect, label: string) => {
-      ctx.save();
-      ctx.fillStyle = "rgba(2,6,23,0.92)";
-      ctx.strokeStyle = "rgba(255,255,255,0.22)";
-      ctx.lineWidth = 2;
-      drawRoundedRect(ctx, r, 14);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "20px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.textBaseline = "middle";
-      ctx.fillText(label, r.x + r.w / 2, r.y + r.h / 2);
-      ctx.restore();
-    };
-
-    drawBtn(share, "Share");
-    drawBtn(retry, "Retry");
-
-    ctx.font = "14px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-    ctx.fillStyle = "rgba(226,232,240,0.9)";
-    ctx.fillText("（タップで操作できます）", w / 2, retry.y + retry.h + 14);
-
-    ctx.restore();
-  }
-
   function makeShareText() {
     const rank = getRank(score);
-    return `emotion-game | ${rank} | score ${score} | maxCombo x${maxCombo} | todayBest ${dailyBest}`;
+    const dailyLine = isNewDailyRecord ? `今日の新記録！ ${dailyBest}` : `今日のベスト: ${dailyBest}`;
+    return `${appName}\nスコア: ${score}\nランク: ${rank}\n最大コンボ: ×${maxCombo}\n${dailyLine}`;
+  }
+
+  async function shareResult() {
+    await shareResultImage(canvas, makeShareText());
   }
 
   function handleTap(x: number, y: number) {
     if (scene !== "play") return;
     if (!gameOver) return;
 
-    const { share, retry } = gameOverButtons(width(), height());
+    const { share, retry, title } = gameOverButtons(width(), height());
 
     if (contains(share, x, y)) {
-      // canvas（現画面）をそのまま共有
-      shareResultImage(canvas, makeShareText());
+      void shareResult();
       return;
     }
     if (contains(retry, x, y)) {
-      resetGame();
+      startRun();
+      return;
+    }
+    if (contains(title, x, y)) {
+      goToTitle();
       return;
     }
   }
@@ -955,6 +1044,8 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   // ===== メインループ =====
   function loop() {
     tick += 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width(), height());
 
     // 状態アップデート（シーンごと）
     switch (scene) {
@@ -1000,6 +1091,9 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
     const coinsEarnMsgActive = tick - lastCoinsEarnedTick < 240;
 
+    const w = width();
+    const h = height();
+
     // ===== シーンごとの描画 =====
     if (scene === "play") {
       drawBackground(drawCtx, {
@@ -1034,7 +1128,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
         trendProgress: trendInfo.progress,
         coins: cosmetics.coins,
         gachaMessage: activeGachaMessage,
-        coinsEarnedText: coinsEarnMsgActive ? `+${lastCoinsEarned} coins!` : null,
+        coinsEarnedText: coinsEarnMsgActive ? `+${lastCoinsEarned} コイン！` : null,
       });
 
       drawLikeParticles(drawCtx, likeParticles);
@@ -1051,9 +1145,6 @@ export function createGame(canvas: HTMLCanvasElement): Game {
         dailyBest,
         isNewDailyRecord,
       });
-
-      // 追加UI（draw.ts を変えずに上乗せ）
-      drawGameOverExtras();
     } else if (scene === "title") {
       drawBackground(drawCtx, {
         inFever: false,
@@ -1070,28 +1161,14 @@ export function createGame(canvas: HTMLCanvasElement): Game {
         skinColors: charSkin.colors,
       });
 
-      const w = width();
-      const h = height();
-
+      drawLikeParticles(drawCtx, likeParticles);
       ctx.textAlign = "center";
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "40px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillText("Emotion Runner", w / 2, h / 2 - 90);
-
-      ctx.font = "16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillStyle = "#cbd5f5";
-      ctx.fillText(`Daily Best (${todayKey()}): ${dailyBest}`, w / 2, h / 2 - 60);
-
-      ctx.font = "20px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillStyle = "#e5e7eb";
-      ctx.fillText("😄 笑顔キープ → ゲームスタート", w / 2, h / 2 - 10);
-      ctx.fillText("🔥 怒り顔キープ → 着せ替え", w / 2, h / 2 + 20);
-      ctx.fillText("😲 驚き顔キープ → ガチャ", w / 2, h / 2 + 50);
-
-      ctx.font = "16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillStyle = "#cbd5f5";
-      ctx.fillText(`所持コイン: ${cosmetics.coins}`, w / 2, h / 2 + 90);
-
+      ctx.fillStyle = "rgba(255,255,255,0.96)";
+      ctx.font = "700 28px 'Avenir Next', system-ui, sans-serif";
+      ctx.fillText(appName, w / 2, 58);
+      ctx.font = "15px 'Avenir Next', system-ui, sans-serif";
+      ctx.fillStyle = "rgba(226,232,240,0.86)";
+      ctx.fillText(`今日のベスト ${dailyBest}  |  コイン ${cosmetics.coins}`, w / 2, 90);
       ctx.textAlign = "left";
     } else if (scene === "customize") {
       drawBackground(drawCtx, {
@@ -1111,53 +1188,33 @@ export function createGame(canvas: HTMLCanvasElement): Game {
         skinColors: charSkin.colors,
       });
 
-      const w = width();
-      const h = height();
-
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "32px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillText("着せ替えルーム", w / 2, 40);
-
-      ctx.font = "18px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillStyle = "#e5e7eb";
-      ctx.fillText("🔥 怒り顔キープ → キャラ衣装切り替え", w / 2, h - 170);
-      ctx.fillText("😲 驚き顔キープ → 背景スキン切り替え", w / 2, h - 140);
-      ctx.fillText("😄 or 😢 長押し → タイトルに戻る", w / 2, h - 110);
-
-      ctx.font = "16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillStyle = "#cbd5f5";
-      ctx.fillText(`所持コイン: ${cosmetics.coins}`, w / 2, h - 70);
-
-      ctx.textAlign = "left";
-
       drawLikeParticles(drawCtx, likeParticles);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.font = "700 26px 'Avenir Next', system-ui, sans-serif";
+      ctx.fillText("着せ替えルーム", w / 2, 54);
+      ctx.font = "15px 'Avenir Next', system-ui, sans-serif";
+      ctx.fillStyle = "rgba(226,232,240,0.84)";
+      ctx.fillText(`${charSkin.name}  |  ${bgSkin.name}`, w / 2, 86);
+      ctx.textAlign = "left";
     } else if (scene === "gacha") {
       drawBackground(drawCtx, {
         inFever: false,
         colors: bgSkin.colors,
       });
 
-      const w = width();
-      const h = height();
-
+      drawLikeParticles(drawCtx, likeParticles);
       ctx.textAlign = "center";
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "32px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillText("ガチャルーム", w / 2, 40);
-
-      ctx.font = "18px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillStyle = "#e5e7eb";
-      ctx.fillText("😄 笑顔キープ → ガチャを1回引く", w / 2, h - 160);
-      ctx.fillText("😢 悲しい顔キープ → タイトルに戻る", w / 2, h - 130);
-
-      ctx.font = "20px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillStyle = "#facc15";
-      ctx.fillText(`Coins: ${cosmetics.coins}`, w / 2, h - 200);
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.font = "700 26px 'Avenir Next', system-ui, sans-serif";
+      ctx.fillText("ガチャルーム", w / 2, 54);
+      ctx.font = "15px 'Avenir Next', system-ui, sans-serif";
+      ctx.fillStyle = "rgba(250,204,21,0.94)";
+      ctx.fillText(`コイン ${cosmetics.coins}`, w / 2, 86);
 
       // ガチャ結果／コイン獲得メッセージ
       if (activeGachaMessage || coinsEarnMsgActive) {
-        const boxW = 480;
+        const boxW = Math.min(360, w - 40);
         const boxH = 80;
         const x = w / 2 - boxW / 2;
         const y = h / 2 - boxH / 2;
@@ -1178,26 +1235,61 @@ export function createGame(canvas: HTMLCanvasElement): Game {
         }
         if (coinsEarnMsgActive) {
           ctx.fillStyle = "#facc15";
-          ctx.fillText(`+${lastCoinsEarned} coins!`, x + boxW / 2, y + 52);
+          ctx.fillText(`+${lastCoinsEarned} コイン！`, x + boxW / 2, y + 52);
         }
 
         ctx.textAlign = "left";
       }
-
-      drawLikeParticles(drawCtx, likeParticles);
     }
 
+    emitSnapshot();
     requestAnimationFrame(loop);
   }
 
   loop();
 
   return {
+    getSnapshot,
+    subscribe(listener) {
+      listeners.add(listener);
+      listener(getSnapshot());
+      return () => {
+        listeners.delete(listener);
+      };
+    },
     setExpression(exp: Expression) {
       currentExpression = exp;
     },
     tap(x: number, y: number) {
       handleTap(x, y);
+    },
+    startRun,
+    retry() {
+      startRun();
+    },
+    goToTitle,
+    openCustomize,
+    openGacha,
+    cycleCharacter,
+    cycleBackground,
+    rollGachaAction() {
+      runGacha();
+    },
+    triggerAction(action: GameAction) {
+      switch (action) {
+        case "jump":
+          performJump();
+          break;
+        case "attack":
+          performAttack();
+          break;
+        case "boost":
+          triggerBoost();
+          break;
+      }
+    },
+    share() {
+      return shareResult();
     },
   };
 }

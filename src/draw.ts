@@ -14,6 +14,57 @@ export type DrawContext = {
   groundY: () => number;
 };
 
+function roundedRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number,
+) {
+  const r = Math.min(radius, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawGlassPanel(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius = 22,
+) {
+  ctx.save();
+  roundedRectPath(ctx, x, y, w, h, radius);
+  ctx.fillStyle = "rgba(7,18,34,0.66)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(191,219,254,0.16)";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function expressionLabel(expression: Expression): string {
+  switch (expression) {
+    case "happy":
+      return "笑顔";
+    case "angry":
+      return "怒った顔";
+    case "surprised":
+      return "驚いた顔";
+    case "sad":
+      return "悲しい顔";
+    default:
+      return "待機中";
+  }
+}
+
 // 背景
 export function drawBackground(
   dc: DrawContext,
@@ -37,6 +88,28 @@ export function drawBackground(
   }
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, w, h);
+
+  const orbA = ctx.createRadialGradient(w * 0.15, h * 0.18, 20, w * 0.15, h * 0.18, w * 0.32);
+  orbA.addColorStop(0, "rgba(56,189,248,0.18)");
+  orbA.addColorStop(1, "rgba(56,189,248,0)");
+  ctx.fillStyle = orbA;
+  ctx.fillRect(0, 0, w, h);
+
+  const orbB = ctx.createRadialGradient(w * 0.86, h * 0.22, 12, w * 0.86, h * 0.22, w * 0.22);
+  orbB.addColorStop(0, inFever ? "rgba(250,204,21,0.22)" : "rgba(249,115,22,0.16)");
+  orbB.addColorStop(1, "rgba(249,115,22,0)");
+  ctx.fillStyle = orbB;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 6; i++) {
+    const y = h * 0.12 + i * (h * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(24, y);
+    ctx.lineTo(w - 24, y);
+    ctx.stroke();
+  }
 
   const gY = groundY();
   ctx.fillStyle = colors.ground;
@@ -244,152 +317,142 @@ export function drawUI(
   } = params;
 
   const w = width();
+  const h = height();
+  const topPad = 16;
+  const sidePad = 16;
 
   ctx.textBaseline = "top";
 
-  // スコア
-  ctx.font = "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.fillStyle = "#ffffff";
+  drawGlassPanel(ctx, sidePad, topPad, 156, 74, 24);
   ctx.textAlign = "left";
-  ctx.fillText(`SCORE ${score}`, 20, 18);
+  ctx.fillStyle = "rgba(226,232,240,0.86)";
+  ctx.font = "600 12px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText("スコア", sidePad + 16, topPad + 14);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "700 26px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText(`${score}`, sidePad + 16, topPad + 28);
 
-  // コンボ
   if (combo > 0) {
-    ctx.fillStyle = inFever ? "#facc15" : "#a5b4fc";
-    ctx.fillText(`COMBO ×${combo}`, 20, 50);
+    drawGlassPanel(ctx, sidePad, topPad + 82, 156, 48, 20);
+    ctx.fillStyle = inFever ? "#facc15" : "#c4b5fd";
+    ctx.font = "700 18px 'Avenir Next', system-ui, sans-serif";
+    ctx.fillText(`コンボ x${combo}`, sidePad + 16, topPad + 96);
   }
 
-  // コイン表示（右上）
-  ctx.font = "16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  const infoPanelW = 128;
+  drawGlassPanel(ctx, w - sidePad - infoPanelW, topPad, infoPanelW, 74, 24);
   ctx.textAlign = "right";
-  ctx.fillStyle = "#e5e7eb";
-  ctx.fillText(`Coins: ${coins}`, w - 20, 18);
+  ctx.fillStyle = "rgba(226,232,240,0.84)";
+  ctx.font = "600 12px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText("コイン", w - sidePad - 16, topPad + 14);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "700 24px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText(`${coins}`, w - sidePad - 16, topPad + 28);
 
-  // ライフ
+  const lifePanelY = topPad + 82;
+  drawGlassPanel(ctx, w - sidePad - infoPanelW, lifePanelY, infoPanelW, 48, 20);
   ctx.textAlign = "left";
-  const heartY = 36;
   for (let i = 0; i < 3; i++) {
-    const x = w - 160 + i * 36;
+    const x = w - sidePad - infoPanelW + 22 + i * 32;
+    const heartY = lifePanelY + 12;
     ctx.beginPath();
-    if (i < life) {
-      ctx.fillStyle = "#f97373";
-    } else {
-      ctx.fillStyle = "rgba(148,163,184,0.5)";
-    }
-    ctx.moveTo(x, heartY + 10);
-    ctx.bezierCurveTo(
-      x - 8,
-      heartY,
-      x - 18,
-      heartY + 12,
-      x,
-      heartY + 24,
-    );
-    ctx.bezierCurveTo(
-      x + 18,
-      heartY + 12,
-      x + 8,
-      heartY,
-      x,
-      heartY + 10,
-    );
+    ctx.fillStyle = i < life ? "#fb7185" : "rgba(148,163,184,0.45)";
+    ctx.moveTo(x, heartY + 8);
+    ctx.bezierCurveTo(x - 8, heartY, x - 16, heartY + 10, x, heartY + 22);
+    ctx.bezierCurveTo(x + 16, heartY + 10, x + 8, heartY, x, heartY + 8);
     ctx.fill();
   }
 
-  // FEVERゲージ
-  const barX = 20;
-  const barY = height() - 60;
-  const barW = w - 40;
+  drawGlassPanel(ctx, sidePad, h - 136, w - sidePad * 2, 88, 24);
+  ctx.fillStyle = inFever ? "#facc15" : "#e5e7eb";
+  ctx.font = "700 14px 'Avenir Next', system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText(inFever ? "フィーバータイム" : "フィーバーゲージ", sidePad + 16, h - 122);
+
+  const barX = sidePad + 16;
+  const barY = h - 98;
+  const barW = w - sidePad * 2 - 32;
   const barH = 18;
 
-  ctx.fillStyle = "rgba(15,23,42,0.8)";
-  ctx.fillRect(barX, barY, barW, barH);
+  roundedRectPath(ctx, barX, barY, barW, barH, 10);
+  ctx.fillStyle = "rgba(15,23,42,0.92)";
+  ctx.fill();
 
   const gaugeRatio = Math.max(0, Math.min(1, feverGauge / 100));
   const filled = barW * gaugeRatio;
+  const gradient = ctx.createLinearGradient(barX, barY, barX + Math.max(filled, 1), barY);
+  gradient.addColorStop(0, "#22c55e");
+  gradient.addColorStop(0.75, "#38bdf8");
+  gradient.addColorStop(1, "#facc15");
+  if (filled > 0.5) {
+    roundedRectPath(ctx, barX, barY, filled, barH, 10);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+  }
 
-  const g = ctx.createLinearGradient(barX, barY, barX + filled, barY);
-  g.addColorStop(0, "#22c55e");
-  g.addColorStop(1, "#facc15");
-  ctx.fillStyle = g;
-  ctx.fillRect(barX, barY, filled, barH);
+  roundedRectPath(ctx, barX, barY, barW, barH, 10);
+  ctx.strokeStyle = "rgba(191,219,254,0.28)";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
 
-  ctx.strokeStyle = "rgba(148,163,184,0.9)";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(barX, barY, barW, barH);
+  ctx.fillStyle = "rgba(226,232,240,0.84)";
+  ctx.font = "600 12px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText(missionText, sidePad + 16, h - 70);
 
-  ctx.fillStyle = inFever ? "#facc15" : "#e5e7eb";
-  ctx.font = "16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  const feverText = inFever ? "FEVER TIME!!!" : "FEVER ゲージ";
-  ctx.fillText(feverText, barX + 10, barY - 22);
-
-  // ミッション
-  ctx.fillStyle = "#e5e7eb";
-  ctx.font = "16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.fillText(missionText, 20, height() - 90);
-
-  // 現在の表情
-  ctx.fillStyle = "rgba(248,250,252,0.9)";
-  ctx.font = "16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.fillText(`EXP: ${currentExpression}`, 20, 80);
+  drawGlassPanel(ctx, sidePad, topPad + 138, 156, 42, 18);
+  ctx.fillStyle = "rgba(226,232,240,0.9)";
+  ctx.font = "600 13px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText(`いまの表情 ${expressionLabel(currentExpression)}`, sidePad + 16, topPad + 151);
 
   // トレンドチャレンジ表示
   if (trendActive && trendLabel) {
-    const boxW = 320;
-    const boxH = 52;
+    const boxW = Math.min(320, w - 48);
+    const boxH = 62;
     const x = w / 2 - boxW / 2;
     const y = 18;
 
-    // 背景ボックス
-    ctx.fillStyle = "rgba(15,23,42,0.85)";
-    ctx.fillRect(x, y, boxW, boxH);
+    drawGlassPanel(ctx, x, y, boxW, boxH, 20);
+    ctx.strokeStyle = "rgba(249,115,22,0.38)";
+    roundedRectPath(ctx, x, y, boxW, boxH, 20);
+    ctx.stroke();
 
-    ctx.strokeStyle = "#f97316";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, boxW, boxH);
-
-    ctx.font = "14px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font = "700 12px 'Avenir Next', system-ui, sans-serif";
     ctx.fillStyle = "#fed7aa";
-    ctx.fillText("TREND CHALLENGE", x + 12, y + 8);
+    ctx.fillText("いまのトレンド", x + 12, y + 8);
 
-    ctx.font = "16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font = "600 14px 'Avenir Next', system-ui, sans-serif";
     ctx.fillStyle = "#ffffff";
     ctx.fillText(trendLabel, x + 12, y + 26);
 
     // 進捗バー
     const prog = Math.max(0, Math.min(1, trendProgress ?? 0));
     const barInnerX = x + boxW - 120;
-    const barInnerY = y + 22;
+    const barInnerY = y + 34;
     const barInnerW = 96;
-    const barInnerH = 14;
+    const barInnerH = 10;
 
+    roundedRectPath(ctx, barInnerX, barInnerY, barInnerW, barInnerH, 8);
     ctx.fillStyle = "rgba(15,23,42,0.9)";
-    ctx.fillRect(barInnerX, barInnerY, barInnerW, barInnerH);
+    ctx.fill();
 
     ctx.fillStyle = "#fb923c";
-    ctx.fillRect(barInnerX, barInnerY, barInnerW * prog, barInnerH);
-
-    ctx.strokeStyle = "rgba(248,250,252,0.8)";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(barInnerX, barInnerY, barInnerW, barInnerH);
+    if (prog > 0.01) {
+      roundedRectPath(ctx, barInnerX, barInnerY, barInnerW * prog, barInnerH, 8);
+      ctx.fill();
+    }
   }
 
   // ガチャメッセージ／コイン獲得メッセージ（画面下中央あたり）
   if (gachaMessage || coinsEarnedText) {
-    const boxW = 460;
+    const boxW = Math.min(420, w - 40);
     const boxH = 60;
     const x = w / 2 - boxW / 2;
-    const y = height() - 140;
+    const y = h - 220;
 
-    ctx.fillStyle = "rgba(15,23,42,0.92)";
-    ctx.fillRect(x, y, boxW, boxH);
-
-    ctx.strokeStyle = "rgba(148,163,184,0.9)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, boxW, boxH);
+    drawGlassPanel(ctx, x, y, boxW, boxH, 20);
 
     ctx.textAlign = "center";
-    ctx.font = "16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font = "600 15px 'Avenir Next', system-ui, sans-serif";
     ctx.fillStyle = "#e5e7eb";
 
     if (gachaMessage) {
@@ -424,7 +487,7 @@ export function drawTitleScreen(
   // タイトル
   ctx.fillStyle = "#f9fafb";
   ctx.font = "48px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.fillText("EMOTION GAME", w / 2, h / 2 - 140);
+  ctx.fillText("表情ランナー", w / 2, h / 2 - 140);
 
   ctx.font = "22px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
   ctx.fillStyle = "#e5e7eb";
@@ -444,7 +507,7 @@ export function drawTitleScreen(
   );
 
   ctx.fillStyle = "#e5e7eb";
-  ctx.fillText(`Coins: ${coins}`, w / 2, h / 2 - 10);
+  ctx.fillText(`コイン: ${coins}`, w / 2, h / 2 - 10);
 
   // 操作説明
   ctx.font = "18px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
@@ -506,7 +569,7 @@ export function drawCustomizeScreen(
   ctx.fillStyle = "#f9fafb";
   ctx.fillText(charName, x + panelW / 2, y + 84);
   ctx.fillStyle = "#facc15";
-  ctx.fillText(`Rarity: ${charRarity}`, x + panelW / 2, y + 106);
+  ctx.fillText(`レア度: ${charRarity}`, x + panelW / 2, y + 106);
 
   // 背景
   ctx.fillStyle = "#bbf7d0";
@@ -514,11 +577,11 @@ export function drawCustomizeScreen(
   ctx.fillStyle = "#f9fafb";
   ctx.fillText(bgName, x + panelW / 2, y + 162);
   ctx.fillStyle = "#facc15";
-  ctx.fillText(`Rarity: ${bgRarity}`, x + panelW / 2, y + 184);
+  ctx.fillText(`レア度: ${bgRarity}`, x + panelW / 2, y + 184);
 
   ctx.font = "14px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
   ctx.fillStyle = "#e5e7eb";
-  ctx.fillText(`Coins: ${coins}`, x + panelW / 2, y + panelH + 20);
+  ctx.fillText(`コイン: ${coins}`, x + panelW / 2, y + panelH + 20);
 
   ctx.fillStyle = "#9ca3af";
   ctx.fillText(
@@ -569,7 +632,7 @@ export function drawGachaScreen(
 
   ctx.font = "16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
   ctx.fillStyle = "#facc15";
-  ctx.fillText(`1回: ${cost} coins`, x + panelW / 2, y + 60);
+  ctx.fillText(`1回: ${cost} コイン`, x + panelW / 2, y + 60);
 
   ctx.fillStyle = "#e5e7eb";
   ctx.fillText(`所持コイン: ${coins}`, x + panelW / 2, y + 86);
@@ -653,76 +716,89 @@ export function drawGameOverOverlay(
 
   const w = width();
   const h = height();
+  const cardW = Math.min(360, w - 40);
+  const cardH = 238;
+  const cardX = w / 2 - cardW / 2;
+  const cardY = h / 2 - 150;
+  const statY = cardY + 132;
+  const statW = (cardW - 16) / 3;
+  const badge = isNewDailyRecord ? "今日の新記録！" : "今日のベスト";
 
-  ctx.fillStyle = "rgba(15,23,42,0.86)";
+  ctx.fillStyle = "rgba(2,6,23,0.68)";
   ctx.fillRect(0, 0, w, h);
 
+  const glow = ctx.createRadialGradient(w / 2, cardY + 30, 10, w / 2, cardY + 30, 180);
+  glow.addColorStop(0, "rgba(249,115,22,0.16)");
+  glow.addColorStop(1, "rgba(249,115,22,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+
+  drawGlassPanel(ctx, cardX, cardY, cardW, cardH, 28);
+
   ctx.textAlign = "center";
+  ctx.fillStyle = "rgba(226,232,240,0.86)";
+  ctx.font = "700 12px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText("けっか", w / 2, cardY + 18);
 
   ctx.fillStyle = "#ffffff";
-  ctx.font = "40px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.fillText("GAME OVER", w / 2, h / 2 - 90);
-
-  ctx.font = "26px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.fillText(`SCORE: ${score}`, w / 2, h / 2 - 40);
-  ctx.fillText(`MAX COMBO: ×${maxCombo}`, w / 2, h / 2);
+  ctx.font = "700 42px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText(`${score}`, w / 2, cardY + 42);
 
   ctx.fillStyle = "#facc15";
-  ctx.font = "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.fillText(rank, w / 2, h / 2 + 46);
+  ctx.font = "700 20px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText(rank, w / 2, cardY + 88);
 
-  // Daily best
-  ctx.font = "18px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.fillStyle = isNewDailyRecord ? "#34d399" : "#e5e7eb";
-  const badge = isNewDailyRecord ? "NEW DAILY BEST!" : "TODAY BEST";
-  ctx.fillText(`${badge}: ${dailyBest}`, w / 2, h / 2 + 82);
+  const statLabels = [
+    { label: "スコア", value: `${score}` },
+    { label: "最大コンボ", value: `×${maxCombo}` },
+    { label: badge, value: `${dailyBest}` },
+  ];
 
-  ctx.fillStyle = "#e5e7eb";
-  ctx.font = "16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  if (showContinueHint) {
-    ctx.fillText(
-      "ニコッと笑顔（happy）をしばらく続けるとコンテニューします",
-      w / 2,
-      h / 2 + 112,
-    );
-  } else {
-    ctx.fillText(
-      "少し待ってから笑顔になるとコンテニューできます",
-      w / 2,
-      h / 2 + 112,
-    );
-  }
+  statLabels.forEach((stat, index) => {
+    const x = cardX + index * statW + index * 8;
+    drawGlassPanel(ctx, x, statY, statW, 64, 18);
+    ctx.fillStyle = "rgba(226,232,240,0.78)";
+    ctx.font = "600 11px 'Avenir Next', system-ui, sans-serif";
+    ctx.fillText(stat.label, x + statW / 2, statY + 10);
+    ctx.fillStyle = index === 2 && isNewDailyRecord ? "#34d399" : "#ffffff";
+    ctx.font = "700 16px 'Avenir Next', system-ui, sans-serif";
+    ctx.fillText(stat.value, x + statW / 2, statY + 32);
+  });
 
-  // Buttons
-  const { share, retry } = gameOverButtons(w, h);
+  ctx.fillStyle = "rgba(226,232,240,0.82)";
+  ctx.font = "600 14px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText(
+    showContinueHint
+      ? "笑顔を続けるとコンティニューできます。下のボタン操作も使えます。"
+      : "少し待つと笑顔コンティニューとボタン操作が使えます。",
+    w / 2,
+    statY + 86,
+  );
 
-  const drawBtn = (r: { x: number; y: number; w: number; h: number }, label: string) => {
-    ctx.save();
-    ctx.fillStyle = "rgba(2,6,23,0.92)";
-    ctx.strokeStyle = "rgba(255,255,255,0.22)";
-    ctx.lineWidth = 2;
+  const { share, retry, title } = gameOverButtons(w, h);
 
-    // rounded rect
-    const rad = 14;
-    ctx.beginPath();
-    ctx.moveTo(r.x + rad, r.y);
-    ctx.arcTo(r.x + r.w, r.y, r.x + r.w, r.y + r.h, rad);
-    ctx.arcTo(r.x + r.w, r.y + r.h, r.x, r.y + r.h, rad);
-    ctx.arcTo(r.x, r.y + r.h, r.x, r.y, rad);
-    ctx.arcTo(r.x, r.y, r.x + r.w, r.y, rad);
-    ctx.closePath();
+  const drawBtn = (
+    rect: { x: number; y: number; w: number; h: number },
+    label: string,
+    accent: string,
+  ) => {
+    roundedRectPath(ctx, rect.x, rect.y, rect.w, rect.h, 18);
+    ctx.fillStyle = "rgba(7,18,34,0.84)";
     ctx.fill();
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.5;
     ctx.stroke();
 
     ctx.fillStyle = "#ffffff";
-    ctx.font = "20px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font = "700 18px 'Avenir Next', system-ui, sans-serif";
     ctx.textBaseline = "middle";
-    ctx.fillText(label, r.x + r.w / 2, r.y + r.h / 2);
-    ctx.restore();
+    ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2);
+    ctx.textBaseline = "top";
   };
 
-  drawBtn(share, "Share");
-  drawBtn(retry, "Retry");
+  drawBtn(share, "共有", "rgba(56,189,248,0.45)");
+  drawBtn(retry, "もう一度", "rgba(249,115,22,0.46)");
+  drawBtn(title, "タイトルへ", "rgba(226,232,240,0.26)");
 
   ctx.textAlign = "left";
 }

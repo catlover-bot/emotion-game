@@ -213,6 +213,15 @@ export function saveOwnedCosmetics(state: OwnedCosmetics): void {
   }
 }
 
+export function clearOwnedCosmetics(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Ignore storage failures so the app can continue.
+  }
+}
+
 // ==== 検索ユーティリティ ====
 
 export function findCharacterSkin(id: string | null | undefined): CharacterSkinDef {

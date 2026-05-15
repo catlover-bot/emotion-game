@@ -14,3 +14,14 @@ export function getRequiredCanvas(id: string): HTMLCanvasElement {
   }
   return el;
 }
+
+export function getRequiredHtmlElement<T extends HTMLElement>(
+  id: string,
+  type: { new (): T },
+): T {
+  const el = document.getElementById(id);
+  if (!(el instanceof type)) {
+    throw new Error(`HTML 要素 #${id} が見つかりません`);
+  }
+  return el;
+}

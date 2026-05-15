@@ -4,9 +4,7 @@
 import * as faceapi from "face-api.js";
 import type { Expression } from "./types";
 
-// いま実際に動いていた CDN モデルをそのまま使う
-const MODEL_URL =
-  "https://justadudewhohacks.github.io/face-api.js/models";
+const MODEL_URL = "/models";
 
 let modelsLoaded = false;
 
