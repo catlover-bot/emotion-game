@@ -1,12 +1,35 @@
 // src/face.ts
 // face-api.js を使った表情認識まわり（さらに「ゆるふわ」判定）
 
-import * as faceapi from "face-api.js";
 import type { Expression } from "./types";
 
-const MODEL_URL = "/models";
+type FaceApiModule = typeof import("face-api.js");
 
+let faceApiModule: FaceApiModule | null = null;
+let faceApiPromise: Promise<FaceApiModule> | null = null;
 let modelsLoaded = false;
+
+function getModelUrl(): string {
+  return new URL("./models/", window.location.href).toString();
+}
+
+async function loadFaceApi(): Promise<FaceApiModule> {
+  if (faceApiModule) return faceApiModule;
+
+  if (!faceApiPromise) {
+    faceApiPromise = import("face-api.js")
+      .then((module) => {
+        faceApiModule = module;
+        return module;
+      })
+      .catch((error: unknown) => {
+        faceApiPromise = null;
+        throw error;
+      });
+  }
+
+  return faceApiPromise;
+}
 
 /**
  * face-api のモデルをロード
@@ -14,10 +37,13 @@ let modelsLoaded = false;
 export async function setupFaceModels(): Promise<void> {
   if (modelsLoaded) return;
 
-  console.log("face-api model base URL:", MODEL_URL);
+  const faceapi = await loadFaceApi();
+  const modelUrl = getModelUrl();
 
-  await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-  await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
+  console.log("face-api model base URL:", modelUrl);
+
+  await faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl);
+  await faceapi.nets.faceExpressionNet.loadFromUri(modelUrl);
 
   modelsLoaded = true;
   console.log("face-api models loaded");
@@ -30,9 +56,16 @@ export function startExpressionLoop(
   video: HTMLVideoElement,
   onExpression: (exp: Expression) => void,
 ): void {
+  if (!faceApiModule) {
+    console.warn("startExpressionLoop called before face-api was loaded");
+    return;
+  }
+
   if (!modelsLoaded) {
     console.warn("startExpressionLoop called before models loaded");
   }
+
+  const faceapi = faceApiModule;
 
   // スムージング用スコア
   const smoothed: Record<Expression, number> = {
@@ -49,7 +82,7 @@ export function startExpressionLoop(
   const ALPHA = 0.25;
 
   // ★ 判定をかなりゆるくした値
-  const HAPPY_MIN = 0.12;   // ちょっと口角上がっただけでも入りやすく
+  const HAPPY_MIN = 0.12; // ちょっと口角上がっただけでも入りやすく
   const HAPPY_MARGIN = 0.02;
   const ANGRY_MIN = 0.16;
   const SURPRISED_MIN = 0.20;
@@ -120,8 +153,8 @@ export function startExpressionLoop(
           onExpression(fallback);
         }
       }
-    } catch (e) {
-      console.error("表情検出中にエラー:", e);
+    } catch (error) {
+      console.error("表情検出中にエラー:", error);
     }
 
     // だいたい 6〜8fps 程度

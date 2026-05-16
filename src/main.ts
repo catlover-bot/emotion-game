@@ -1,248 +1,179 @@
 import "./style.css";
 
-import { getRequiredCanvas, getRequiredHtmlElement, getRequiredVideo } from "./dom";
-import { CameraSetupError, setupCamera, stopCamera } from "./camera";
-import { clearOwnedCosmetics } from "./cosmetics";
-import { createGame, type Game } from "./game";
-import { setupFaceModels, startExpressionLoop } from "./face";
-import { createAppShell, type CameraUiState } from "./appShell";
-import {
-  clearAppStorage,
-  loadOnboardingComplete,
-  loadTutorialComplete,
-  resetTutorialComplete,
-  saveOnboardingComplete,
-  saveTutorialComplete,
-} from "./storage";
-import type { Expression } from "./types";
+import type { StartupReporter } from "./app";
 
-function bindTapToGame(canvas: HTMLCanvasElement, game: Pick<Game, "tap">) {
-  const handler = (clientX: number, clientY: number) => {
-    const rect = canvas.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-    game.tap(x, y);
-  };
+const APP_NAME = "表情ランナー";
 
-  canvas.addEventListener("pointerdown", (event) => {
-    handler(event.clientX, event.clientY);
-  });
+type BootMode = "loading" | "error";
 
-  canvas.addEventListener(
-    "touchstart",
-    (event) => {
-      const touch = event.touches[0];
-      if (!touch) return;
-      handler(touch.clientX, touch.clientY);
-    },
-    { passive: true },
-  );
+let startupStage = "boot";
+let startupDetail = "起動準備をしています…";
+let diagnosticsOpen = false;
+let appReady = false;
+
+function escapeHtml(text: string): string {
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
-async function main() {
-  const video = getRequiredVideo("video");
-  const canvas = getRequiredCanvas("gameCanvas");
-  const uiRoot = getRequiredHtmlElement("uiRoot", HTMLDivElement);
-
-  video.setAttribute("playsinline", "true");
-  video.playsInline = true;
-
-  const game = createGame(canvas);
-  bindTapToGame(canvas, game);
-
-  let onboardingComplete = loadOnboardingComplete();
-  let tutorialComplete = loadTutorialComplete();
-  let currentExpression: Expression = "neutral";
-  let cameraState: CameraUiState = "idle";
-  let faceLoopStarted = false;
-  let pendingStartAfterTutorial = false;
-
-  const appShell = createAppShell({
-    root: uiRoot,
-    onStartGame() {
-      if (!tutorialComplete) {
-        pendingStartAfterTutorial = true;
-        appShell.showPractice("start");
-        routeExpression();
-        return;
-      }
-
-      pendingStartAfterTutorial = false;
-      appShell.closeOverlay();
-      game.startRun();
-      routeExpression();
-    },
-    onOpenCustomize() {
-      appShell.closeOverlay();
-      game.openCustomize();
-      routeExpression();
-    },
-    onOpenGacha() {
-      appShell.closeOverlay();
-      game.openGacha();
-      routeExpression();
-    },
-    onBackToTitle() {
-      pendingStartAfterTutorial = false;
-      appShell.closeOverlay();
-      game.goToTitle();
-      routeExpression();
-    },
-    onCycleCharacter() {
-      game.cycleCharacter();
-    },
-    onCycleBackground() {
-      game.cycleBackground();
-    },
-    onRollGacha() {
-      game.rollGachaAction();
-    },
-    onShare() {
-      void game.share();
-    },
-    onRetryGame() {
-      appShell.closeOverlay();
-      game.retry();
-      routeExpression();
-    },
-    onEnableCamera() {
-      void enableCamera();
-    },
-    onContinueWithoutCamera() {
-      finishOnboarding();
-      pendingStartAfterTutorial = false;
-      appShell.closeOverlay();
-      routeExpression();
-    },
-    onCloseOverlay() {
-      if (appShell.getOverlay() === "onboarding") {
-        finishOnboarding();
-      }
-      pendingStartAfterTutorial = false;
-      appShell.closeOverlay();
-      routeExpression();
-    },
-    onFinishTutorial() {
-      tutorialComplete = true;
-      saveTutorialComplete(true);
-      appShell.closeOverlay();
-      if (pendingStartAfterTutorial) {
-        pendingStartAfterTutorial = false;
-        game.startRun();
-      }
-      routeExpression();
-    },
-    onTouchAction(action) {
-      game.triggerAction(action);
-    },
-    onOverlayChanged() {
-      routeExpression();
-    },
-    onResetTutorial() {
-      tutorialComplete = false;
-      resetTutorialComplete();
-    },
-    onResetData() {
-      clearOwnedCosmetics();
-      clearAppStorage();
-      window.location.reload();
-    },
-  });
-
-  game.subscribe((snapshot) => {
-    appShell.setGameSnapshot(snapshot);
-  });
-
-  function routeExpression() {
-    game.setExpression(appShell.isBlockingGameInput() ? "neutral" : currentExpression);
+function getBootMount(): HTMLDivElement {
+  const uiRoot = document.getElementById("uiRoot");
+  if (uiRoot instanceof HTMLDivElement) {
+    return uiRoot;
   }
 
-  function finishOnboarding() {
-    if (onboardingComplete) return;
-    onboardingComplete = true;
-    saveOnboardingComplete(true);
+  const existing = document.getElementById("bootMount");
+  if (existing instanceof HTMLDivElement) {
+    return existing;
   }
 
-  function setCameraUi(nextState: CameraUiState, message: string) {
-    cameraState = nextState;
-    appShell.setCameraState(nextState, message);
-    routeExpression();
-  }
-
-  async function enableCamera() {
-    if (cameraState === "requesting" || cameraState === "ready") return;
-
-    finishOnboarding();
-    setCameraUi("requesting", "カメラの許可を確認しています...");
-
-    try {
-      await setupCamera(video);
-      setCameraUi("requesting", "表情認識の準備をしています...");
-      try {
-        await setupFaceModels();
-      } catch {
-        stopCamera(video);
-        setCameraUi("error", "表情認識の準備に失敗しました。いまはタップ操作で遊べます。");
-        return;
-      }
-
-      if (!faceLoopStarted) {
-        startExpressionLoop(video, (expression) => {
-          currentExpression = expression;
-          appShell.setExpression(expression);
-          routeExpression();
-        });
-        faceLoopStarted = true;
-      }
-
-      setCameraUi("ready", "表情認識の準備ができました。");
-    } catch (error) {
-      currentExpression = "neutral";
-      appShell.setExpression("neutral");
-
-      if (error instanceof CameraSetupError) {
-        if (error.kind === "denied") {
-          setCameraUi("denied", "カメラの許可がオフです。あとから設定でオンにできます。");
-          return;
-        }
-
-        if (error.kind === "unsupported") {
-          setCameraUi("unsupported", "この端末やブラウザではカメラ機能を利用できません。");
-          return;
-        }
-
-        if (error.kind === "unavailable") {
-          setCameraUi("error", "カメラが見つからないか、ほかのアプリで使用中です。");
-          return;
-        }
-
-        setCameraUi("error", "カメラを起動できませんでした。");
-        return;
-      }
-
-      const message =
-        error instanceof Error ? error.message : "カメラで不明なエラーが発生しました。";
-      setCameraUi("error", message);
-    }
-  }
-
-  window.addEventListener("pagehide", () => {
-    stopCamera(video);
-  });
-
-  appShell.setExpression(currentExpression);
-
-  if (!onboardingComplete) {
-    appShell.showOnboarding();
-  } else {
-    appShell.closeOverlay();
-  }
-
-  routeExpression();
+  const mount = document.createElement("div");
+  mount.id = "bootMount";
+  mount.className = "boot-mount-fallback";
+  document.body.appendChild(mount);
+  return mount;
 }
 
-window.addEventListener("load", () => {
-  main().catch((error) => {
+function formatErrorText(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "不明なエラーが発生しました。";
+  }
+}
+
+function renderBootScreen(mode: BootMode, message: string, errorText?: string) {
+  const mount = getBootMount();
+  const diagnosticHtml = diagnosticsOpen
+    ? `
+        <div class="boot-diagnostics">
+          <strong>診断情報</strong>
+          <span>現在の段階: ${escapeHtml(startupStage)}</span>
+          <span>詳細: ${escapeHtml(startupDetail)}</span>
+          ${errorText ? `<span>エラー: ${escapeHtml(errorText)}</span>` : ""}
+        </div>
+      `
+    : "";
+  const actionHtml =
+    mode === "error"
+      ? `
+          <div class="boot-actions">
+            <button type="button" data-boot-action="reload" class="primary-button">再読み込み</button>
+            <button type="button" data-boot-action="toggle-diagnostics" class="ghost-button">診断</button>
+          </div>
+        `
+      : `
+          <div class="boot-actions">
+            <button type="button" data-boot-action="toggle-diagnostics" class="ghost-button">診断</button>
+          </div>
+        `;
+  const subtitle =
+    mode === "error"
+      ? "ベータ版の起動で問題が発生しました。もう一度読み込んでも改善しない場合は、この画面を添えて共有してください。"
+      : "初回起動やアップデート直後は、数秒ほど準備に時間がかかることがあります。";
+  const title = mode === "error" ? "アプリの起動に失敗しました" : `${APP_NAME}を起動中…`;
+  const statusLabel = mode === "error" ? "起動エラー" : "起動ステージ";
+
+  mount.innerHTML = `
+    <section class="boot-screen" data-boot-mode="${mode}">
+      <div class="boot-card">
+        <span class="eyebrow">testflight beta</span>
+        <h2>${escapeHtml(title)}</h2>
+        <p>${escapeHtml(subtitle)}</p>
+        <div class="boot-meta">
+          <strong>${escapeHtml(statusLabel)}</strong>
+          <span>${escapeHtml(message)}</span>
+        </div>
+        ${errorText ? `<div class="boot-error">${escapeHtml(errorText)}</div>` : ""}
+        ${actionHtml}
+        ${diagnosticHtml}
+      </div>
+    </section>
+  `;
+
+  mount.querySelector<HTMLElement>('[data-boot-action="reload"]')?.addEventListener("click", () => {
+    window.location.reload();
+  });
+  mount
+    .querySelector<HTMLElement>('[data-boot-action="toggle-diagnostics"]')
+    ?.addEventListener("click", () => {
+      diagnosticsOpen = !diagnosticsOpen;
+      renderBootScreen(mode, message, errorText);
+    });
+}
+
+function updateBootStage(stage: string, detail: string) {
+  startupStage = stage;
+  startupDetail = detail;
+  if (!appReady) {
+    renderBootScreen("loading", detail);
+  }
+}
+
+function showStartupFailure(error: unknown, context: string) {
+  const errorText = formatErrorText(error);
+  startupStage = context;
+  startupDetail = "起動処理が途中で停止しました。";
+  renderBootScreen("error", "起動処理が完了できませんでした。", errorText);
+}
+
+function installGlobalErrorHandlers() {
+  window.addEventListener("error", (event) => {
+    console.error("window error:", event.error ?? event.message);
+    showStartupFailure(event.error ?? event.message, "window-error");
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    console.error("unhandled rejection:", event.reason);
+    showStartupFailure(event.reason, "unhandled-rejection");
+  });
+}
+
+async function bootstrap() {
+  updateBootStage("bootstrap", "表情ランナーを起動しています…");
+
+  try {
+    const { startApp } = await import("./app");
+
+    const startupReporter: StartupReporter = {
+      setStage(stage, detail = startupDetail) {
+        updateBootStage(stage, detail);
+      },
+      markReady() {
+        appReady = true;
+      },
+    };
+
+    await startApp(startupReporter);
+  } catch (error) {
     console.error("起動時に致命的なエラー:", error);
-  });
-});
+    showStartupFailure(error, "bootstrap");
+  }
+}
+
+installGlobalErrorHandlers();
+renderBootScreen("loading", startupDetail);
+
+if (document.readyState === "loading") {
+  document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+      updateBootStage("dom-content-loaded", "初期画面を準備しています…");
+      void bootstrap();
+    },
+    { once: true },
+  );
+} else {
+  updateBootStage("dom-ready", "初期画面を準備しています…");
+  void bootstrap();
+}

@@ -90,14 +90,17 @@ button {
   height: 100%;
   display: block;
   touch-action: none;
+  z-index: 0;
 }
 
 #uiRoot {
   pointer-events: none;
+  z-index: 2;
 }
 
 #video {
   display: none;
+  z-index: -1;
 }
 
 .ui-layer {
@@ -105,12 +108,19 @@ button {
   inset: 0;
 }
 
+.boot-mount-fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+
 .top-overlay,
 .scene-overlay,
 .touch-controls,
 .result-actions,
 .result-summary,
-.modal-screen {
+.modal-screen,
+.boot-screen {
   pointer-events: none;
 }
 
@@ -124,6 +134,7 @@ button {
 .floating-banner,
 .menu-panel,
 .modal-card,
+.boot-card,
 .detail-card,
 .practice-card,
 .touch-button,
@@ -414,6 +425,74 @@ button {
     max(20px, var(--safe-bottom))
     max(20px, var(--safe-left));
   background: rgba(2, 6, 23, 0.56);
+}
+
+.boot-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding:
+    max(18px, var(--safe-top))
+    max(20px, var(--safe-right))
+    max(20px, var(--safe-bottom))
+    max(20px, var(--safe-left));
+  background:
+    radial-gradient(circle at top, rgba(56, 189, 248, 0.16), transparent 35%),
+    rgba(2, 6, 23, 0.88);
+}
+
+.boot-card {
+  pointer-events: auto;
+  width: min(100%, 620px);
+  display: grid;
+  gap: 14px;
+  padding: 24px 22px 22px;
+  border-radius: 28px;
+  border: 1px solid rgba(191, 219, 254, 0.22);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(5, 18, 31, 0.92));
+  box-shadow: var(--shadow);
+}
+
+.boot-card h2,
+.boot-card p {
+  margin: 0;
+}
+
+.boot-meta,
+.boot-diagnostics,
+.boot-error {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(8, 21, 39, 0.72);
+  border: 1px solid rgba(191, 219, 254, 0.18);
+}
+
+.boot-meta strong,
+.boot-diagnostics strong {
+  font-size: 0.95rem;
+}
+
+.boot-meta span,
+.boot-diagnostics span {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.boot-error {
+  color: #fde68a;
+  border-color: rgba(249, 115, 22, 0.32);
+  word-break: break-word;
+}
+
+.boot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .modal-card {

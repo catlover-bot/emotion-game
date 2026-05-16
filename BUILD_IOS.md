@@ -48,6 +48,7 @@ npx cap open ios
 4. `Distribute App` → `App Store Connect` → `Upload` を選びます。
 5. 自動署名を使う場合は、そのまま推奨設定で進めます。
 6. 新しい TestFlight アップロードごとに `Build` 番号を 1 つ増やしてから Archive します。
+7. `Build` 番号を変更したあとは、`npm run build` と `npx cap sync ios` を実行してから Archive します。
 
 ## 8. TestFlight 用メモ
 
