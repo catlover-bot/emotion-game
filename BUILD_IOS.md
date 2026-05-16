@@ -30,10 +30,12 @@ npx cap open ios
 - `App` ターゲットの `Signing & Capabilities` で Apple Developer Team を選びます。
 - `Bundle Identifier` はそのまま使います。変更が必要な場合は、既存の配布計画と衝突しないか先に確認します。
 - `CFBundleDisplayName` は `表情ランナー` です。
+- このアプリは横画面専用です。`Info.plist` では `Landscape Left / Landscape Right` のみを許可し、`UIRequiresFullScreen = true` にして iPad マルチタスク前提の向き検証を避けます。
 
 ## 6. 実機テスト
 
 - シミュレータではカメラ挙動が不十分なことがあるため、必ず実機 iPhone でも確認します。
+- 横向きで起動し、ノッチ側とホームインジケータ側のセーフエリアに重要 UI が重ならないことを確認します。
 - 初回起動時にカメラ許可ダイアログが出ることを確認します。
 - カメラ拒否後もタップ操作で継続できることを確認します。
 - 表情認識が失敗してもクラッシュせず遊べることを確認します。
@@ -45,6 +47,7 @@ npx cap open ios
 3. Organizer で生成された Archive を選びます。
 4. `Distribute App` → `App Store Connect` → `Upload` を選びます。
 5. 自動署名を使う場合は、そのまま推奨設定で進めます。
+6. 新しい TestFlight アップロードごとに `Build` 番号を 1 つ増やしてから Archive します。
 
 ## 8. TestFlight 用メモ
 
@@ -52,7 +55,15 @@ npx cap open ios
 - 審査メモには、カメラ用途が「表情でキャラクターを操作するため」であり、映像は端末内処理で保存・送信しないことを明記します。
 - App Store Connect の Privacy Nutrition Label は、実装に合わせて慎重に入力します。
 
-## 9. トラブルシュート
+## 9. 検証コマンド
+
+```bash
+npm run build
+npx cap sync ios
+plutil -p ios/App/App/Info.plist | grep -A8 -E "UIRequiresFullScreen|UISupportedInterfaceOrientations"
+```
+
+## 10. トラブルシュート
 
 - `npm run build` が失敗したら、TypeScript エラーを先に解消します。
 - `npx cap sync ios` が失敗したら、`npm install` 済みか確認します。

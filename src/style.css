@@ -21,12 +21,18 @@
   --accent-2: #38bdf8;
   --text-muted: rgba(226, 232, 240, 0.82);
   --shadow: 0 20px 50px rgba(15, 23, 42, 0.45);
+  --safe-top: env(safe-area-inset-top);
+  --safe-right: env(safe-area-inset-right);
+  --safe-bottom: env(safe-area-inset-bottom);
+  --safe-left: env(safe-area-inset-left);
 }
 
 html,
 body {
   margin: 0;
+  width: 100%;
   min-width: 320px;
+  height: 100%;
   min-height: 100%;
   background:
     radial-gradient(circle at top, rgba(56, 189, 248, 0.24), transparent 36%),
@@ -36,6 +42,7 @@ body {
 
 body {
   min-height: 100dvh;
+  overscroll-behavior: none;
 }
 
 button {
@@ -52,15 +59,16 @@ button {
   justify-content: center;
   min-height: 100dvh;
   padding:
-    max(12px, env(safe-area-inset-top))
-    12px
-    max(16px, env(safe-area-inset-bottom))
-    12px;
+    max(12px, var(--safe-top))
+    max(12px, var(--safe-right))
+    max(16px, var(--safe-bottom))
+    max(12px, var(--safe-left));
 }
 
 #gameStage {
   position: relative;
-  width: min(100%, 460px);
+  width: min(100%, 1280px);
+  height: min(100%, 860px);
   min-height: 0;
   flex: 1;
   border-radius: 30px;
@@ -108,9 +116,9 @@ button {
 
 .top-overlay {
   position: absolute;
-  top: max(14px, env(safe-area-inset-top));
-  left: 14px;
-  right: 14px;
+  top: max(14px, var(--safe-top));
+  left: max(14px, var(--safe-left));
+  right: max(14px, var(--safe-right));
 }
 
 .floating-banner,
@@ -159,9 +167,10 @@ button {
   align-items: center;
   justify-content: center;
   padding:
-    calc(max(14px, env(safe-area-inset-top)) + 72px)
-    18px
-    calc(max(18px, env(safe-area-inset-bottom)) + 104px);
+    calc(max(14px, var(--safe-top)) + 72px)
+    max(18px, var(--safe-right))
+    calc(max(18px, var(--safe-bottom)) + 104px)
+    max(18px, var(--safe-left));
 }
 
 .scene-overlay.is-play {
@@ -400,10 +409,10 @@ button {
   align-items: center;
   justify-content: center;
   padding:
-    max(18px, env(safe-area-inset-top))
-    20px
-    max(20px, env(safe-area-inset-bottom))
-    20px;
+    max(18px, var(--safe-top))
+    max(20px, var(--safe-right))
+    max(20px, var(--safe-bottom))
+    max(20px, var(--safe-left));
   background: rgba(2, 6, 23, 0.56);
 }
 
@@ -534,9 +543,9 @@ button {
 
 .touch-controls {
   position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: max(16px, env(safe-area-inset-bottom));
+  left: max(16px, var(--safe-left));
+  right: max(16px, var(--safe-right));
+  bottom: max(16px, var(--safe-bottom));
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
@@ -550,18 +559,18 @@ button {
 
 .result-actions {
   position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: max(16px, env(safe-area-inset-bottom));
+  left: max(16px, var(--safe-left));
+  right: max(16px, var(--safe-right));
+  bottom: max(16px, var(--safe-bottom));
   display: grid;
   gap: 10px;
 }
 
 .result-summary {
   position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 196px);
+  left: max(16px, var(--safe-left));
+  right: max(16px, var(--safe-right));
+  bottom: calc(max(16px, var(--safe-bottom)) + 196px);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
@@ -586,9 +595,9 @@ button {
 
 .gameplay-banner {
   position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 78px);
+  left: max(16px, var(--safe-left));
+  right: max(16px, var(--safe-right));
+  bottom: calc(max(16px, var(--safe-bottom)) + 78px);
   padding: 12px 14px;
   border-radius: 18px;
   border: 1px solid rgba(148, 163, 184, 0.22);
@@ -615,6 +624,116 @@ button {
   margin-top: 18px;
 }
 
+@media (orientation: landscape) and (min-width: 700px) {
+  #appShell {
+    padding:
+      max(10px, var(--safe-top))
+      max(18px, var(--safe-right))
+      max(10px, var(--safe-bottom))
+      max(18px, var(--safe-left));
+  }
+
+  #gameStage {
+    border-radius: 34px;
+  }
+
+  .top-overlay {
+    max-width: min(420px, 40vw);
+  }
+
+  .scene-overlay {
+    padding:
+      calc(max(14px, var(--safe-top)) + 36px)
+      calc(max(22px, var(--safe-right)) + 20px)
+      calc(max(14px, var(--safe-bottom)) + 28px)
+      calc(max(22px, var(--safe-left)) + 20px);
+  }
+
+  .menu-panel,
+  .modal-card {
+    max-width: 760px;
+  }
+
+  .menu-panel.compact {
+    max-width: 760px;
+  }
+
+  .title-panel {
+    max-width: 880px;
+    padding: 28px 28px 24px;
+  }
+
+  .title-menu-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .face-hints {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .onboarding-card,
+  .tutorial-card {
+    max-width: 760px;
+  }
+
+  .touch-controls {
+    left: auto;
+    right: calc(max(16px, var(--safe-right)) + 12px);
+    bottom: max(16px, var(--safe-bottom));
+    width: min(240px, 28vw);
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .gameplay-banner {
+    left: calc(max(16px, var(--safe-left)) + 12px);
+    right: calc(max(16px, var(--safe-right)) + 272px);
+    bottom: max(16px, var(--safe-bottom));
+    text-align: left;
+  }
+
+  .result-actions {
+    left: calc(max(16px, var(--safe-left)) + 12px);
+    right: calc(max(16px, var(--safe-right)) + 12px);
+    bottom: max(16px, var(--safe-bottom));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .result-summary {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: min(620px, calc(100% - max(48px, var(--safe-left)) - max(48px, var(--safe-right))));
+    bottom: calc(max(16px, var(--safe-bottom)) + 86px);
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .menu-panel,
+  .modal-card {
+    padding: 20px 18px 18px;
+  }
+
+  .hero-copy h1,
+  .panel-header h2,
+  .modal-card h2 {
+    font-size: clamp(1.7rem, 4.4vw, 2.2rem);
+  }
+
+  .hero-stats,
+  .detail-grid,
+  .intro-grid {
+    gap: 10px;
+  }
+
+  .touch-button,
+  .primary-button,
+  .secondary-button,
+  .ghost-button {
+    min-height: 50px;
+  }
+}
+
 @media (max-width: 380px) {
   .button-row,
   .hero-stats,
@@ -627,8 +746,8 @@ button {
   }
 
   .scene-overlay {
-    padding-left: 14px;
-    padding-right: 14px;
+    padding-left: max(14px, var(--safe-left));
+    padding-right: max(14px, var(--safe-right));
   }
 
   .touch-button,
