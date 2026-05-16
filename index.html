@@ -9,7 +9,7 @@
     />
     <meta name="apple-mobile-web-app-title" content="表情ランナー" />
   </head>
-  <body>
+  <body style="margin: 0; min-height: 100vh; background: #052e16; color: #ffffff">
     <div
       id="hardBootStamp"
       style="
@@ -25,8 +25,8 @@
           calc(24px + env(safe-area-inset-bottom))
           calc(24px + env(safe-area-inset-left));
         background:
-          radial-gradient(circle at top, rgba(56, 189, 248, 0.28), transparent 36%),
-          linear-gradient(180deg, #0f172a, #05121f);
+          radial-gradient(circle at top, rgba(251, 146, 60, 0.36), transparent 36%),
+          linear-gradient(180deg, #3f1d0b, #7c2d12);
         color: #ffffff;
         pointer-events: auto;
         box-sizing: border-box;
@@ -47,7 +47,7 @@
         "
       >表情ランナー
 TestFlight診断ビルド
-Build 3
+Build 4
 HTML表示確認中…</div>
     </div>
 
@@ -74,7 +74,7 @@ HTML表示確認中…</div>
     <script>
       (function () {
         window.__EMOTION_RUNNER_STATIC_HTML_LOADED__ = true;
-        window.__EMOTION_RUNNER_BUILD__ = "3";
+        window.__EMOTION_RUNNER_BUILD__ = "4";
         var stampText = document.getElementById("hardBootStampText");
 
         function setLines(lines) {
@@ -87,7 +87,7 @@ HTML表示確認中…</div>
           if (window.__EMOTION_RUNNER_APP_READY__ === true) return;
           setLines([
             "表情ランナー",
-            "Build 3",
+            "Build 4",
             "起動処理がまだ完了していません",
             "JSまたはアセット読み込みで停止している可能性があります",
           ]);
@@ -97,7 +97,7 @@ HTML表示確認中…</div>
           if (window.__EMOTION_RUNNER_APP_READY__ === true) return;
           setLines([
             "表情ランナー",
-            "Build 3",
+            "Build 4",
             "診断: index.htmlは表示されています",
             "main.tsまたはapp.tsの起動に失敗している可能性があります",
           ]);

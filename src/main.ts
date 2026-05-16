@@ -12,7 +12,7 @@ declare global {
 }
 
 const APP_NAME = "表情ランナー";
-const DIAGNOSTIC_BUILD = window.__EMOTION_RUNNER_BUILD__ ?? "3";
+const DIAGNOSTIC_BUILD = window.__EMOTION_RUNNER_BUILD__ ?? "4";
 
 const STAMP_BASE_STYLE = `
   position: fixed;
@@ -27,8 +27,8 @@ const STAMP_BASE_STYLE = `
     calc(24px + env(safe-area-inset-bottom))
     calc(24px + env(safe-area-inset-left));
   background:
-    radial-gradient(circle at top, rgba(56, 189, 248, 0.28), transparent 36%),
-    linear-gradient(180deg, #0f172a, #05121f);
+    radial-gradient(circle at top, rgba(251, 146, 60, 0.36), transparent 36%),
+    linear-gradient(180deg, #3f1d0b, #7c2d12);
   color: #ffffff;
   pointer-events: auto;
   box-sizing: border-box;

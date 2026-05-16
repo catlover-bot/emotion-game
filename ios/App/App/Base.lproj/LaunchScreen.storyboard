@@ -15,6 +15,21 @@
                     <imageView key="view" userInteractionEnabled="NO" contentMode="scaleAspectFill" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="Splash" id="snD-IY-ifK">
                         <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
                         <autoresizingMask key="autoresizingMask"/>
+                        <subviews>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="center" text="表情ランナー&#10;Native Launch Build 4" textAlignment="center" lineBreakMode="tailTruncation" numberOfLines="0" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="NB4-zG-8sL">
+                                <rect key="frame" x="32" y="285.5" width="311" height="96"/>
+                                <color key="backgroundColor" red="0.035294117647058823" green="0.090196078431372548" blue="0.16470588235294117" alpha="0.69999999999999996" colorSpace="custom" customColorSpace="sRGB"/>
+                                <fontDescription key="fontDescription" type="boldSystem" pointSize="22"/>
+                                <color key="textColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                        </subviews>
+                        <constraints>
+                            <constraint firstItem="NB4-zG-8sL" firstAttribute="centerX" secondItem="snD-IY-ifK" secondAttribute="centerX" id="1aM-3n-k4p"/>
+                            <constraint firstItem="NB4-zG-8sL" firstAttribute="centerY" secondItem="snD-IY-ifK" secondAttribute="centerY" id="6Uw-vK-kSk"/>
+                            <constraint firstItem="NB4-zG-8sL" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="snD-IY-ifK" secondAttribute="leading" constant="24" id="AqL-Z2-L1a"/>
+                            <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="NB4-zG-8sL" secondAttribute="trailing" constant="24" id="gRQ-D4-M5l"/>
+                        </constraints>
                         <color key="backgroundColor" systemColor="systemBackgroundColor"/>
                     </imageView>
                 </viewController>
