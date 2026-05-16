@@ -55,6 +55,9 @@ npx cap open ios
 - TestFlight の説明文には、表情操作とタップ操作の両対応であることを書くと分かりやすいです。
 - 審査メモには、カメラ用途が「表情でキャラクターを操作するため」であり、映像は端末内処理で保存・送信しないことを明記します。
 - App Store Connect の Privacy Nutrition Label は、実装に合わせて慎重に入力します。
+- Build 3 には `hard inline boot stamp` を入れています。`Build 3 / HTML表示確認中…` が見えない場合は、想定したビルドが入っていないか、ネイティブ WebView が `index.html` を読み込めていない可能性があります。
+- スタンプは見えるのに先へ進まない場合は、表示されている起動段階を確認します。
+- TestFlight へ再アップロードするたびに `CURRENT_PROJECT_VERSION` を増やします。
 
 ## 9. 検証コマンド
 

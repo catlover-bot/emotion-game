@@ -59,6 +59,7 @@ export async function startApp(startup: StartupReporter) {
   let faceLoopStarted = false;
   let pendingStartAfterTutorial = false;
   let game: Game | null = null;
+  let shellVisibleNotified = false;
 
   startup.setStage("shell-rendered", "初回画面を表示しています…");
 
@@ -164,6 +165,13 @@ export async function startApp(startup: StartupReporter) {
     game?.setExpression(appShell.isBlockingGameInput() ? "neutral" : currentExpression);
   }
 
+  function notifyShellVisible(detail: string) {
+    if (shellVisibleNotified) return;
+    shellVisibleNotified = true;
+    startup.setStage("shell-rendered", detail);
+    startup.markReady();
+  }
+
   function finishOnboarding() {
     if (onboardingComplete) return;
     onboardingComplete = true;
@@ -246,6 +254,7 @@ export async function startApp(startup: StartupReporter) {
 
   if (!onboardingComplete) {
     appShell.showOnboarding();
+    notifyShellVisible("オンボーディングを表示しました。");
   } else {
     appShell.closeOverlay();
   }
@@ -256,6 +265,8 @@ export async function startApp(startup: StartupReporter) {
 
   game.subscribe((snapshot) => {
     appShell.setGameSnapshot(snapshot);
+    if (!onboardingComplete) return;
+    notifyShellVisible("タイトル画面を表示しました。");
   });
 
   window.addEventListener("pagehide", () => {
@@ -264,6 +275,5 @@ export async function startApp(startup: StartupReporter) {
 
   routeExpression();
   startup.setStage("game-ready", "ゲームの準備ができました。");
-  startup.markReady();
   startup.setStage("camera-waiting", "カメラはボタンを押すまで開始しません。");
 }

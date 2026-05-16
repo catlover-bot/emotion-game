@@ -10,6 +10,47 @@
     <meta name="apple-mobile-web-app-title" content="表情ランナー" />
   </head>
   <body>
+    <div
+      id="hardBootStamp"
+      style="
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding:
+          calc(24px + env(safe-area-inset-top))
+          calc(24px + env(safe-area-inset-right))
+          calc(24px + env(safe-area-inset-bottom))
+          calc(24px + env(safe-area-inset-left));
+        background:
+          radial-gradient(circle at top, rgba(56, 189, 248, 0.28), transparent 36%),
+          linear-gradient(180deg, #0f172a, #05121f);
+        color: #ffffff;
+        pointer-events: auto;
+        box-sizing: border-box;
+      "
+    >
+      <div
+        id="hardBootStampText"
+        style="
+          max-width: 760px;
+          width: 100%;
+          text-align: center;
+          white-space: pre-line;
+          font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Hiragino Sans', sans-serif;
+          font-size: clamp(24px, 4vw, 42px);
+          line-height: 1.5;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+        "
+      >表情ランナー
+TestFlight診断ビルド
+Build 3
+HTML表示確認中…</div>
+    </div>
+
     <div id="appShell">
       <div id="gameStage">
         <video id="video" playsinline></video>
@@ -29,6 +70,40 @@
         </div>
       </div>
     </div>
+
+    <script>
+      (function () {
+        window.__EMOTION_RUNNER_STATIC_HTML_LOADED__ = true;
+        window.__EMOTION_RUNNER_BUILD__ = "3";
+        var stampText = document.getElementById("hardBootStampText");
+
+        function setLines(lines) {
+          if (stampText) {
+            stampText.textContent = lines.join("\n");
+          }
+        }
+
+        setTimeout(function () {
+          if (window.__EMOTION_RUNNER_APP_READY__ === true) return;
+          setLines([
+            "表情ランナー",
+            "Build 3",
+            "起動処理がまだ完了していません",
+            "JSまたはアセット読み込みで停止している可能性があります",
+          ]);
+        }, 2000);
+
+        setTimeout(function () {
+          if (window.__EMOTION_RUNNER_APP_READY__ === true) return;
+          setLines([
+            "表情ランナー",
+            "Build 3",
+            "診断: index.htmlは表示されています",
+            "main.tsまたはapp.tsの起動に失敗している可能性があります",
+          ]);
+        }, 5000);
+      })();
+    </script>
 
     <script type="module" src="/src/main.ts"></script>
   </body>
