@@ -55,9 +55,11 @@ npx cap open ios
 - TestFlight の説明文には、表情操作とタップ操作の両対応であることを書くと分かりやすいです。
 - 審査メモには、カメラ用途が「表情でキャラクターを操作するため」であり、映像は端末内処理で保存・送信しないことを明記します。
 - App Store Connect の Privacy Nutrition Label は、実装に合わせて慎重に入力します。
-- Build 4 には `hard inline boot stamp` を入れています。`Build 4 / HTML表示確認中…` が見えない場合は、想定したビルドが入っていないか、ネイティブ WebView が `index.html` を読み込めていない可能性があります。
+- Build 5 には `hard inline boot stamp` を入れています。`Build 5 / HTML表示確認中…` が見えない場合は、想定したビルドが入っていないか、ネイティブ WebView が `index.html` を読み込めていない可能性があります。
 - スタンプは見えるのに先へ進まない場合は、表示されている起動段階を確認します。
-- Build 4 ではネイティブ Launch Screen にも `表情ランナー Native Launch Build 4` を一時表示します。これが見えるのに HTML スタンプへ切り替わらない場合は、WebView かバンドル済み web 資産の読込で止まっている可能性があります。
+- Build 5 では AppDelegate から一時的な native 診断オーバーレイを表示します。`表情ランナー / Native AppDelegate Build 5 / Capacitor起動確認中…` が出るのに HTML の `Build 5` が出ない場合は、native runtime は始まっている一方で WebView か `index.html` の描画で止まっている可能性があります。
+- native オーバーレイも HTML もどちらも見えない場合は、古い build を見ているか、native launch より前で止まっている可能性があります。
+- Xcode の Devices and Simulators Console では `EMOTION_RUNNER_NATIVE_DIAG` と `EMOTION_RUNNER_NATIVE_STAGE` で検索します。
 - TestFlight へ再アップロードするたびに `CURRENT_PROJECT_VERSION` を増やします。
 
 ## 9. 検証コマンド
@@ -75,10 +77,10 @@ Archive 後に、実際に `.xcarchive` の中へ最新の web 資産が入っ�
 ```bash
 ARCHIVE_PATH="$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -n 1)"
 find "$ARCHIVE_PATH/Products/Applications/App.app/public" -maxdepth 2 -type f | sort
-grep -R "Build 4" "$ARCHIVE_PATH/Products/Applications/App.app/public/index.html"
+grep -R "Build 5" "$ARCHIVE_PATH/Products/Applications/App.app/public/index.html"
 ```
 
-`index.html` に `Build 4` が含まれ、`public/assets` と `public/models` が見えていれば、Archive 自体には最新資産が入っています。
+`index.html` に `Build 5` が含まれ、`public/assets` と `public/models` が見えていれば、Archive 自体には最新資産が入っています。
 
 ## 11. トラブルシュート
 
