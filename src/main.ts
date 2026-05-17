@@ -12,7 +12,7 @@ declare global {
 }
 
 const APP_NAME = "表情ランナー";
-const DIAGNOSTIC_BUILD = window.__EMOTION_RUNNER_BUILD__ ?? "5";
+const DIAGNOSTIC_BUILD = window.__EMOTION_RUNNER_BUILD__ ?? "6";
 
 const STAMP_BASE_STYLE = `
   position: fixed;
@@ -207,7 +207,7 @@ function markAppShellVisible() {
   renderHardBootStamp("アプリ画面を表示しました。", "起動段階: app-shell-visible");
   window.setTimeout(() => {
     stamp.remove();
-  }, 2200);
+  }, 900);
 }
 
 function installGlobalErrorHandlers() {

@@ -5,16 +5,11 @@ import Capacitor
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
-    private weak var diagnosticOverlay: UIView?
-    private let diagnosticOverlayTag = 5050_5005
-    private let diagnosticBuild = "5"
+    private let diagnosticBuild = "6"
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         logNativeStage("didFinishLaunching")
         logBundleDiagnostics(context: "didFinishLaunching")
-        DispatchQueue.main.async { [weak self] in
-            self?.installDiagnosticOverlayIfPossible(reason: "didFinishLaunching")
-        }
         return true
     }
 
@@ -35,9 +30,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func applicationDidBecomeActive(_ application: UIApplication) {
         logNativeStage("applicationDidBecomeActive")
         logBundleDiagnostics(context: "applicationDidBecomeActive")
-        DispatchQueue.main.async { [weak self] in
-            self?.installDiagnosticOverlayIfPossible(reason: "applicationDidBecomeActive")
-        }
     }
 
     func applicationWillTerminate(_ application: UIApplication) {
@@ -73,6 +65,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     private func logBundleDiagnostics(context: String) {
+        NSLog("EMOTION_RUNNER_NATIVE_DIAG: build=%@", diagnosticBuild)
         NSLog("EMOTION_RUNNER_NATIVE_DIAG: context=%@", context)
         NSLog("EMOTION_RUNNER_NATIVE_DIAG: bundlePath=%@", Bundle.main.bundlePath)
 
@@ -97,96 +90,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             directoryExists(at: modelsURL) ? "true" : "false",
             modelsURL?.path ?? "<nil>"
         )
-    }
-
-    private func installDiagnosticOverlayIfPossible(reason: String, attempt: Int = 0) {
-        let resolvedWindow = activeWindow()
-        let rootDescription: String
-        if let rootViewController = resolvedWindow?.rootViewController {
-            rootDescription = String(describing: type(of: rootViewController))
-        } else {
-            rootDescription = "<nil>"
-        }
-
-        NSLog("EMOTION_RUNNER_NATIVE_STAGE: overlay-attempt=%@/%d", reason, attempt)
-        NSLog("EMOTION_RUNNER_NATIVE_STAGE: rootViewController=%@", rootDescription)
-        NSLog("EMOTION_RUNNER_NATIVE_STAGE: window=%@", String(describing: resolvedWindow))
-
-        guard let targetWindow = resolvedWindow else {
-            if attempt < 6 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-                    self?.installDiagnosticOverlayIfPossible(reason: reason, attempt: attempt + 1)
-                }
-            }
-            return
-        }
-
-        if let existingOverlay = targetWindow.viewWithTag(diagnosticOverlayTag) {
-            targetWindow.bringSubviewToFront(existingOverlay)
-            diagnosticOverlay = existingOverlay
-            return
-        }
-
-        let overlay = UIView()
-        overlay.tag = diagnosticOverlayTag
-        overlay.translatesAutoresizingMaskIntoConstraints = false
-        overlay.backgroundColor = UIColor(red: 0.07, green: 0.13, blue: 0.33, alpha: 0.96)
-        overlay.layer.cornerRadius = 26
-        overlay.layer.borderWidth = 1
-        overlay.layer.borderColor = UIColor(red: 0.49, green: 0.82, blue: 0.99, alpha: 0.42).cgColor
-        overlay.clipsToBounds = true
-        overlay.isUserInteractionEnabled = false
-
-        let label = UILabel()
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.text = "表情ランナー\nNative AppDelegate Build \(diagnosticBuild)\nCapacitor起動確認中…"
-        label.numberOfLines = 0
-        label.textAlignment = .center
-        label.textColor = .white
-        label.font = UIFont.systemFont(ofSize: 24, weight: .bold)
-
-        overlay.addSubview(label)
-        targetWindow.addSubview(overlay)
-        targetWindow.bringSubviewToFront(overlay)
-        diagnosticOverlay = overlay
-
-        NSLayoutConstraint.activate([
-            overlay.leadingAnchor.constraint(
-                greaterThanOrEqualTo: targetWindow.safeAreaLayoutGuide.leadingAnchor,
-                constant: 20
-            ),
-            overlay.trailingAnchor.constraint(
-                lessThanOrEqualTo: targetWindow.safeAreaLayoutGuide.trailingAnchor,
-                constant: -20
-            ),
-            overlay.topAnchor.constraint(
-                greaterThanOrEqualTo: targetWindow.safeAreaLayoutGuide.topAnchor,
-                constant: 20
-            ),
-            overlay.bottomAnchor.constraint(
-                lessThanOrEqualTo: targetWindow.safeAreaLayoutGuide.bottomAnchor,
-                constant: -20
-            ),
-            overlay.centerXAnchor.constraint(equalTo: targetWindow.centerXAnchor),
-            overlay.centerYAnchor.constraint(equalTo: targetWindow.centerYAnchor),
-            overlay.widthAnchor.constraint(lessThanOrEqualToConstant: 520),
-            label.leadingAnchor.constraint(equalTo: overlay.leadingAnchor, constant: 24),
-            label.trailingAnchor.constraint(equalTo: overlay.trailingAnchor, constant: -24),
-            label.topAnchor.constraint(equalTo: overlay.topAnchor, constant: 24),
-            label.bottomAnchor.constraint(equalTo: overlay.bottomAnchor, constant: -24)
-        ])
-
-        NSLog("EMOTION_RUNNER_NATIVE_STAGE: overlay-added")
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { [weak self] in
-            self?.removeDiagnosticOverlayIfNeeded()
-        }
-    }
-
-    private func removeDiagnosticOverlayIfNeeded() {
-        diagnosticOverlay?.removeFromSuperview()
-        diagnosticOverlay = nil
-        NSLog("EMOTION_RUNNER_NATIVE_STAGE: overlay-removed")
     }
 
     private func activeWindow() -> UIWindow? {

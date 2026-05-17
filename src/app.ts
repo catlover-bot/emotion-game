@@ -60,6 +60,7 @@ export async function startApp(startup: StartupReporter) {
   let pendingStartAfterTutorial = false;
   let game: Game | null = null;
   let shellVisibleNotified = false;
+  let recoveryScheduled = false;
 
   startup.setStage("shell-rendered", "初回画面を表示しています…");
 
@@ -161,15 +162,54 @@ export async function startApp(startup: StartupReporter) {
     },
   });
 
+  function hasMeaningfulUiContent() {
+    const rect = uiRoot.getBoundingClientRect();
+    if (rect.width < 140 || rect.height < 140) {
+      return false;
+    }
+
+    const selectors = [
+      ".menu-panel",
+      ".modal-card",
+      ".floating-banner",
+      ".touch-controls",
+      ".result-actions",
+      ".boot-card",
+      "[data-action]",
+    ];
+    return selectors.some((selector) => uiRoot.querySelector(selector) !== null);
+  }
+
   function routeExpression() {
     game?.setExpression(appShell.isBlockingGameInput() ? "neutral" : currentExpression);
   }
 
   function notifyShellVisible(detail: string) {
     if (shellVisibleNotified) return;
-    shellVisibleNotified = true;
-    startup.setStage("shell-rendered", detail);
-    startup.markReady();
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (shellVisibleNotified || !hasMeaningfulUiContent()) return;
+        shellVisibleNotified = true;
+        startup.setStage("shell-rendered", detail);
+        startup.markReady();
+      });
+    });
+  }
+
+  function recoverAppShellIfEmpty() {
+    if (recoveryScheduled || hasMeaningfulUiContent()) {
+      return;
+    }
+
+    recoveryScheduled = true;
+    startup.setStage("ui-recovery", "起動画面を復旧しています…");
+    appShell.showRecoveryMenu();
+    routeExpression();
+
+    window.requestAnimationFrame(() => {
+      notifyShellVisible("復旧したタイトル画面を表示しました。");
+    });
   }
 
   function finishOnboarding() {
@@ -255,8 +295,6 @@ export async function startApp(startup: StartupReporter) {
   if (!onboardingComplete) {
     appShell.showOnboarding();
     notifyShellVisible("オンボーディングを表示しました。");
-  } else {
-    appShell.closeOverlay();
   }
 
   startup.setStage("game-creating", "ゲーム本体を準備しています…");
@@ -268,6 +306,10 @@ export async function startApp(startup: StartupReporter) {
     if (!onboardingComplete) return;
     notifyShellVisible("タイトル画面を表示しました。");
   });
+
+  window.setTimeout(() => {
+    recoverAppShellIfEmpty();
+  }, 1000);
 
   window.addEventListener("pagehide", () => {
     stopCamera(video);

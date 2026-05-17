@@ -19,7 +19,8 @@ type OverlayScreen =
   | "howToPlay"
   | "practice"
   | "privacy"
-  | "settings";
+  | "settings"
+  | "recovery";
 
 type PracticeMode = "learn" | "start";
 type TutorialExpression = Exclude<Expression, "neutral">;
@@ -664,6 +665,23 @@ export function createAppShell(options: AppShellOptions) {
     `;
   }
 
+  function getRecoveryHtml() {
+    return `
+      <section class="modal-screen">
+        <div class="modal-card recovery-card">
+          <span class="eyebrow">表示を復旧しました</span>
+          <h2>${APP_NAME}</h2>
+          <p>起動画面の表示を復旧しました。ここからそのまま遊べます。</p>
+          <div class="menu-grid single">
+            <button type="button" data-action="start-game" class="primary-button">ゲーム開始</button>
+            <button type="button" data-action="open-how-to" class="secondary-button">あそび方</button>
+            <button type="button" data-action="open-camera-overlay" class="ghost-button">カメラを許可する</button>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   function getOverlayHtml() {
     switch (state.overlay) {
       case "onboarding":
@@ -682,6 +700,8 @@ export function createAppShell(options: AppShellOptions) {
         return getPrivacyHtml();
       case "settings":
         return getSettingsHtml();
+      case "recovery":
+        return getRecoveryHtml();
       default:
         return "";
     }
@@ -811,6 +831,9 @@ export function createAppShell(options: AppShellOptions) {
     const touchControls = game ? getTouchControlsHtml(game) : "";
     const resultActions = game ? getGameOverActionsHtml(game) : "";
 
+    root.dataset.overlay = state.overlay;
+    root.dataset.scene = game?.scene ?? "none";
+
     root.innerHTML = `
       <div class="ui-layer">
         <div class="top-overlay">
@@ -879,6 +902,11 @@ export function createAppShell(options: AppShellOptions) {
       state.confirmResetData = false;
       state.settingsNotice = "";
       setOverlay("settings");
+    },
+    showRecoveryMenu() {
+      state.confirmResetData = false;
+      state.settingsNotice = "";
+      setOverlay("recovery");
     },
     closeOverlay() {
       setOverlay("none");
