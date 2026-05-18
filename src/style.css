@@ -557,6 +557,42 @@ button {
   border-color: rgba(56, 189, 248, 0.34);
 }
 
+.diagnostic-toggle-wrap {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.diagnostic-toggle {
+  justify-self: start;
+}
+
+.diagnostic-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.diagnostic-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(8, 21, 39, 0.76);
+  border: 1px solid rgba(191, 219, 254, 0.18);
+}
+
+.diagnostic-card strong {
+  font-size: 0.92rem;
+}
+
+.diagnostic-card span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
 .practice-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

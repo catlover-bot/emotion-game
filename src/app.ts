@@ -1,8 +1,9 @@
 import { getRequiredCanvas, getRequiredHtmlElement, getRequiredVideo } from "./dom";
+import type { CameraDiagnostics } from "./camera";
 import { CameraSetupError, setupCamera, stopCamera } from "./camera";
 import { clearOwnedCosmetics } from "./cosmetics";
 import { createGame, type Game } from "./game";
-import { setupFaceModels, startExpressionLoop } from "./face";
+import { getFaceModelBaseUrl, setupFaceModels, startExpressionLoop } from "./face";
 import { createAppShell, type CameraUiState } from "./appShell";
 import {
   clearAppStorage,
@@ -18,6 +19,47 @@ export type StartupReporter = {
   setStage(stage: string, detail?: string): void;
   markReady(): void;
 };
+
+function createRuntimeDiagnostics(video: HTMLVideoElement): CameraDiagnostics {
+  return {
+    phase: "camera",
+    errorName: "",
+    errorMessage: "",
+    mediaDevicesExists: typeof navigator !== "undefined" && "mediaDevices" in navigator,
+    getUserMediaExists:
+      typeof navigator !== "undefined" &&
+      typeof navigator.mediaDevices?.getUserMedia === "function",
+    isSecureContext: window.isSecureContext,
+    href: window.location.href,
+    origin: window.location.origin,
+    attempts: [],
+    videoReadyState: video.readyState,
+    videoWidth: video.videoWidth,
+    videoHeight: video.videoHeight,
+    notes: [],
+    modelUrl: "",
+  };
+}
+
+function createModelFailureDiagnostics(
+  base: CameraDiagnostics | null,
+  video: HTMLVideoElement,
+  error: unknown,
+): CameraDiagnostics {
+  const diagnostics = base ? { ...base, attempts: [...base.attempts], notes: [...base.notes] } : createRuntimeDiagnostics(video);
+  diagnostics.phase = "models";
+  diagnostics.errorName = error instanceof Error ? error.name || "ModelLoadError" : "ModelLoadError";
+  diagnostics.errorMessage =
+    error instanceof Error ? error.message || "表情認識モデルを読み込めませんでした。" : String(error);
+  diagnostics.videoReadyState = video.readyState;
+  diagnostics.videoWidth = video.videoWidth;
+  diagnostics.videoHeight = video.videoHeight;
+  diagnostics.modelUrl = getFaceModelBaseUrl();
+  diagnostics.notes.push(
+    "カメラ映像は取得できましたが、表情認識モデルの読み込みに失敗しました。",
+  );
+  return diagnostics;
+}
 
 function bindTapToGame(canvas: HTMLCanvasElement, game: Pick<Game, "tap">) {
   const handler = (clientX: number, clientY: number) => {
@@ -56,6 +98,7 @@ export async function startApp(startup: StartupReporter) {
   let tutorialComplete = loadTutorialComplete();
   let currentExpression: Expression = "neutral";
   let cameraState: CameraUiState = "idle";
+  let lastCameraDiagnostics: CameraDiagnostics | null = null;
   let faceLoopStarted = false;
   let pendingStartAfterTutorial = false;
   let game: Game | null = null;
@@ -218,9 +261,16 @@ export async function startApp(startup: StartupReporter) {
     saveOnboardingComplete(true);
   }
 
-  function setCameraUi(nextState: CameraUiState, message: string) {
+  function setCameraUi(
+    nextState: CameraUiState,
+    message: string,
+    options?: {
+      title?: string;
+      diagnostics?: CameraDiagnostics | null;
+    },
+  ) {
     cameraState = nextState;
-    appShell.setCameraState(nextState, message);
+    appShell.setCameraState(nextState, message, options);
     routeExpression();
   }
 
@@ -232,15 +282,31 @@ export async function startApp(startup: StartupReporter) {
     setCameraUi("requesting", "カメラの許可を確認しています...");
 
     try {
-      await setupCamera(video);
+      lastCameraDiagnostics = await setupCamera(video);
       startup.setStage("models-loading", "表情認識モデルを読み込んでいます…");
       setCameraUi("requesting", "表情認識の準備をしています...");
       try {
         await setupFaceModels();
-      } catch {
+      } catch (error) {
+        const diagnostics = createModelFailureDiagnostics(lastCameraDiagnostics, video, error);
+        console.error("EMOTION_RUNNER_CAMERA model-setup-failed", {
+          errorName: diagnostics.errorName,
+          errorMessage: diagnostics.errorMessage,
+          modelUrl: diagnostics.modelUrl,
+          videoReadyState: diagnostics.videoReadyState,
+          videoWidth: diagnostics.videoWidth,
+          videoHeight: diagnostics.videoHeight,
+        });
         startup.setStage("models-failed", "表情認識モデルを読み込めませんでした。");
         stopCamera(video);
-        setCameraUi("error", "表情認識の準備に失敗しました。いまはタップ操作で遊べます。");
+        setCameraUi(
+          "error",
+          "表情認識の準備に失敗しました。いまはタップ操作で遊べます。",
+          {
+            title: "表情認識の準備に失敗しました",
+            diagnostics,
+          },
+        );
         return;
       }
 
@@ -254,39 +320,69 @@ export async function startApp(startup: StartupReporter) {
       }
 
       startup.setStage("camera-ready", "表情認識の準備ができました。");
+      console.info("EMOTION_RUNNER_CAMERA ready", {
+        videoReadyState: video.readyState,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+      });
       setCameraUi("ready", "表情認識の準備ができました。");
     } catch (error) {
       currentExpression = "neutral";
       appShell.setExpression("neutral");
+      lastCameraDiagnostics = error instanceof CameraSetupError
+        ? error.diagnostics
+        : createRuntimeDiagnostics(video);
 
       if (error instanceof CameraSetupError) {
         if (error.kind === "denied") {
           startup.setStage("camera-denied", "カメラの許可がオフです。");
-          setCameraUi("denied", "カメラの許可がオフです。あとから設定でオンにできます。");
+          setCameraUi("denied", error.message, {
+            title: "カメラの使用が許可されていません",
+            diagnostics: error.diagnostics,
+          });
           return;
         }
 
         if (error.kind === "unsupported") {
           startup.setStage("camera-unsupported", "この端末ではカメラ機能を利用できません。");
-          setCameraUi("unsupported", "この端末やブラウザではカメラ機能を利用できません。");
+          setCameraUi("unsupported", error.message, {
+            title: "この端末ではカメラを利用できません",
+            diagnostics: error.diagnostics,
+          });
           return;
         }
 
         if (error.kind === "unavailable") {
           startup.setStage("camera-unavailable", "カメラがほかのアプリで使用中か見つかりません。");
-          setCameraUi("error", "カメラが見つからないか、ほかのアプリで使用中です。");
+          setCameraUi("error", error.message, {
+            title: "カメラを起動できませんでした",
+            diagnostics: error.diagnostics,
+          });
           return;
         }
 
         startup.setStage("camera-error", "カメラを起動できませんでした。");
-        setCameraUi("error", "カメラを起動できませんでした。");
+        setCameraUi("error", error.message, {
+          title: "カメラを起動できませんでした",
+          diagnostics: error.diagnostics,
+        });
         return;
       }
 
       const message =
         error instanceof Error ? error.message : "カメラで不明なエラーが発生しました。";
+      console.error("EMOTION_RUNNER_CAMERA unexpected-camera-error", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: message,
+        videoReadyState: video.readyState,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+      });
       startup.setStage("camera-error", message);
-      setCameraUi("error", message);
+      setCameraUi("error", message, {
+        title: "カメラを起動できませんでした",
+        diagnostics: lastCameraDiagnostics,
+      });
     }
   }
 

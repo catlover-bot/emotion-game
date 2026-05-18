@@ -1,3 +1,4 @@
+import type { CameraDiagnostics } from "./camera";
 import type { Expression } from "./types";
 import type { GameAction, GameSnapshot } from "./game";
 import type { Rarity } from "./cosmetics";
@@ -50,7 +51,10 @@ type AppShellState = {
   overlay: OverlayScreen;
   game: GameSnapshot | null;
   cameraState: CameraUiState;
+  cameraTitle: string;
   cameraMessage: string;
+  cameraDiagnostics: CameraDiagnostics | null;
+  cameraDiagnosticsExpanded: boolean;
   expression: Expression;
   tutorialSeen: Record<TutorialExpression, boolean>;
   practiceMode: PracticeMode;
@@ -144,6 +148,10 @@ function getRarityLabel(rarity: Rarity): string {
   }
 }
 
+function getBooleanLabel(value: boolean): string {
+  return value ? "true" : "false";
+}
+
 export type AppShell = ReturnType<typeof createAppShell>;
 
 export function createAppShell(options: AppShellOptions) {
@@ -153,7 +161,10 @@ export function createAppShell(options: AppShellOptions) {
     overlay: "none",
     game: null,
     cameraState: "idle",
+    cameraTitle: "",
     cameraMessage: "",
+    cameraDiagnostics: null,
+    cameraDiagnosticsExpanded: false,
     expression: "neutral",
     tutorialSeen: createEmptyTutorialSeen(),
     practiceMode: "learn",
@@ -217,6 +228,88 @@ export function createAppShell(options: AppShellOptions) {
         <strong>いまはタップ操作で遊べます</strong>
         <span>カメラを許可すると、表情操作も使えるようになります。</span>
         <button type="button" data-action="open-camera-overlay" class="ghost-button">カメラを許可する</button>
+      </div>
+    `;
+  }
+
+  function getCameraDiagnosticsHtml() {
+    const diagnostics = state.cameraDiagnostics;
+    if (!diagnostics) return "";
+
+    const toggleLabel = state.cameraDiagnosticsExpanded
+      ? "診断情報を隠す"
+      : "診断情報を表示";
+
+    const noteHtml =
+      diagnostics.notes.length > 0
+        ? `
+            <div class="diagnostic-card">
+              <strong>補足メモ</strong>
+              ${diagnostics.notes
+                .map((note) => `<span>${escapeHtml(note)}</span>`)
+                .join("")}
+            </div>
+          `
+        : "";
+
+    const attemptCards = diagnostics.attempts
+      .map((attempt) => {
+        const lines = [
+          `制約: ${attempt.constraintsText}`,
+          `結果: ${attempt.success ? "成功" : "失敗"}`,
+          `error.name: ${attempt.errorName || "-"}`,
+          `error.message: ${attempt.errorMessage || "-"}`,
+          `stream track count: ${attempt.streamTrackCount || 0}`,
+          `tracks: ${attempt.trackSummaryText || "-"}`,
+          `video.play(): ${attempt.playResult || "-"}`,
+          `ready event: ${attempt.readyEvent || "-"}`,
+          `video.readyState: ${attempt.videoReadyState}`,
+          `video size: ${attempt.videoWidth} x ${attempt.videoHeight}`,
+        ]
+          .map((line) => `<span>${escapeHtml(line)}</span>`)
+          .join("");
+
+        return `
+          <div class="diagnostic-card">
+            <strong>試行 ${attempt.attemptNumber}: ${escapeHtml(attempt.label)}</strong>
+            ${lines}
+          </div>
+        `;
+      })
+      .join("");
+
+    const detailsHtml = state.cameraDiagnosticsExpanded
+      ? `
+          <div class="diagnostic-panel">
+            <div class="diagnostic-card">
+              <strong>error.name / error.message</strong>
+              <span>${escapeHtml(diagnostics.errorName || "-")}</span>
+              <span>${escapeHtml(diagnostics.errorMessage || "-")}</span>
+            </div>
+            <div class="diagnostic-card">
+              <strong>環境</strong>
+              <span>navigator.mediaDevices: ${getBooleanLabel(diagnostics.mediaDevicesExists)}</span>
+              <span>getUserMedia: ${getBooleanLabel(diagnostics.getUserMediaExists)}</span>
+              <span>window.isSecureContext: ${getBooleanLabel(diagnostics.isSecureContext)}</span>
+              <span>origin: ${escapeHtml(diagnostics.origin || "-")}</span>
+              <span>href: ${escapeHtml(diagnostics.href || "-")}</span>
+              <span>video.readyState: ${diagnostics.videoReadyState}</span>
+              <span>video size: ${diagnostics.videoWidth} x ${diagnostics.videoHeight}</span>
+              <span>phase: ${escapeHtml(diagnostics.phase)}</span>
+              <span>model URL: ${escapeHtml(diagnostics.modelUrl || "-")}</span>
+            </div>
+            ${noteHtml}
+            ${attemptCards}
+          </div>
+        `
+      : "";
+
+    return `
+      <div class="diagnostic-toggle-wrap">
+        <button type="button" data-action="toggle-camera-diagnostics" class="ghost-button diagnostic-toggle">
+          ${toggleLabel}
+        </button>
+        ${detailsHtml}
       </div>
     `;
   }
@@ -445,6 +538,10 @@ export function createAppShell(options: AppShellOptions) {
   }
 
   function getCameraDeniedHtml() {
+    const message =
+      state.cameraMessage ||
+      "カメラの使用が許可されていません。iPhoneの「設定」→「表情ランナー」→「カメラ」をオンにしてください。";
+
     return `
       <section class="modal-screen">
         <div class="modal-card">
@@ -454,6 +551,7 @@ export function createAppShell(options: AppShellOptions) {
             いまはタップ操作で遊べます。表情操作を使いたいときは、iPhoneの設定やブラウザ設定で
             カメラを許可してから、もう一度確認してください。
           </p>
+          <div class="camera-status">${escapeHtml(message)}</div>
           <ul class="tip-list">
             <li>Safari の場合: アドレスバーの設定からカメラを許可してください。</li>
             <li>iPhone アプリの場合: 「設定」→「表情ランナー」→「カメラ」をオンにしてください。</li>
@@ -463,6 +561,7 @@ export function createAppShell(options: AppShellOptions) {
             <button type="button" data-action="enable-camera" class="primary-button">もう一度カメラを確認</button>
             <button type="button" data-action="continue-without-camera" class="ghost-button">タップ操作で遊ぶ</button>
           </div>
+          ${getCameraDiagnosticsHtml()}
         </div>
       </section>
     `;
@@ -470,18 +569,20 @@ export function createAppShell(options: AppShellOptions) {
 
   function getCameraErrorHtml() {
     const message = state.cameraMessage || "カメラの起動に失敗しました。";
+    const title = state.cameraTitle || "カメラを起動できませんでした";
 
     return `
       <section class="modal-screen">
         <div class="modal-card">
-          <span class="eyebrow">カメラエラー</span>
-          <h2>カメラを起動できませんでした</h2>
+          <span class="eyebrow">カメラ / 表情認識</span>
+          <h2>${escapeHtml(title)}</h2>
           <p>${escapeHtml(message)}</p>
           <p>タップ操作でそのまま遊べます。必要なときだけ後からカメラを再確認してください。</p>
           <div class="button-row">
             <button type="button" data-action="enable-camera" class="primary-button">もう一度カメラを確認</button>
             <button type="button" data-action="continue-without-camera" class="ghost-button">タップ操作で遊ぶ</button>
           </div>
+          ${getCameraDiagnosticsHtml()}
         </div>
       </section>
     `;
@@ -796,6 +897,10 @@ export function createAppShell(options: AppShellOptions) {
           case "confirm-reset-data":
             options.onResetData();
             break;
+          case "toggle-camera-diagnostics":
+            state.cameraDiagnosticsExpanded = !state.cameraDiagnosticsExpanded;
+            render();
+            break;
           case "touch-jump":
             options.onTouchAction("jump");
             break;
@@ -857,9 +962,19 @@ export function createAppShell(options: AppShellOptions) {
       state.game = snapshot;
       render();
     },
-    setCameraState(cameraState: CameraUiState, cameraMessage = "") {
+    setCameraState(
+      cameraState: CameraUiState,
+      cameraMessage = "",
+      options?: {
+        title?: string;
+        diagnostics?: CameraDiagnostics | null;
+      },
+    ) {
       state.cameraState = cameraState;
+      state.cameraTitle = options?.title ?? "";
       state.cameraMessage = cameraMessage;
+      state.cameraDiagnostics = options?.diagnostics ?? null;
+      state.cameraDiagnosticsExpanded = false;
 
       if (cameraState === "denied") {
         setOverlay("cameraDenied");

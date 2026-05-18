@@ -9,7 +9,7 @@ let faceApiModule: FaceApiModule | null = null;
 let faceApiPromise: Promise<FaceApiModule> | null = null;
 let modelsLoaded = false;
 
-function getModelUrl(): string {
+export function getFaceModelBaseUrl(): string {
   return new URL("./models/", window.location.href).toString();
 }
 
@@ -38,15 +38,24 @@ export async function setupFaceModels(): Promise<void> {
   if (modelsLoaded) return;
 
   const faceapi = await loadFaceApi();
-  const modelUrl = getModelUrl();
+  const modelUrl = getFaceModelBaseUrl();
 
-  console.log("face-api model base URL:", modelUrl);
+  console.info("EMOTION_RUNNER_CAMERA models-loading", { modelUrl });
 
-  await faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl);
-  await faceapi.nets.faceExpressionNet.loadFromUri(modelUrl);
+  try {
+    await faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl);
+    await faceapi.nets.faceExpressionNet.loadFromUri(modelUrl);
+  } catch (error) {
+    console.error("EMOTION_RUNNER_CAMERA models-failed", {
+      modelUrl,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 
   modelsLoaded = true;
-  console.log("face-api models loaded");
+  console.info("EMOTION_RUNNER_CAMERA models-ready", { modelUrl });
 }
 
 /**
