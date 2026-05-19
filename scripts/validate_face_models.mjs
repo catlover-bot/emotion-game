@@ -11,13 +11,15 @@ const REQUIRED_MODELS = [
   {
     modelName: "tiny_face_detector_model",
     manifestFile: "tiny_face_detector_model-weights_manifest.json",
-    shardFile: "tiny_face_detector_model-shard1",
+    shardFile: "tiny_face_detector_model-shard1.bin",
+    legacyShardFile: "tiny_face_detector_model-shard1",
     minimumShardBytes: 100_000,
   },
   {
     modelName: "face_expression_model",
     manifestFile: "face_expression_model-weights_manifest.json",
-    shardFile: "face_expression_model-shard1",
+    shardFile: "face_expression_model-shard1.bin",
+    legacyShardFile: "face_expression_model-shard1",
     minimumShardBytes: 200_000,
   },
 ];
@@ -103,9 +105,15 @@ function printFileReport(label, file) {
 async function validateModel(model) {
   const manifest = await readRequiredFile(model.manifestFile);
   const shard = await readRequiredFile(model.shardFile);
+  const legacyShard = model.legacyShardFile
+    ? await readRequiredFile(model.legacyShardFile).catch(() => null)
+    : null;
 
   printFileReport("manifest", manifest);
   printFileReport("shard", shard);
+  if (legacyShard) {
+    printFileReport("legacy shard", legacyShard);
+  }
 
   if (hasForbiddenPrefix(manifest.buffer)) {
     throw new Error(`${manifest.fileName} looks like HTML or a Git LFS pointer`);
@@ -128,6 +136,12 @@ async function validateModel(model) {
   const manifestPaths = parsedManifest.flatMap((group) => group.paths ?? []);
   if (!manifestPaths.includes(model.shardFile)) {
     throw new Error(`${manifest.fileName} does not reference expected shard ${model.shardFile}`);
+  }
+  if (manifestPaths.some((manifestPath) => !String(manifestPath).endsWith(".bin"))) {
+    throw new Error(`${manifest.fileName} must reference .bin shard files for Capacitor iOS`);
+  }
+  if (model.legacyShardFile && manifestPaths.includes(model.legacyShardFile)) {
+    throw new Error(`${manifest.fileName} still references legacy extensionless shard ${model.legacyShardFile}`);
   }
 
   const expectedShardBytes = getWeightByteLength(parsedManifest);

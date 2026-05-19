@@ -26,20 +26,20 @@ const MODEL_ASSETS: ModelAssetDefinition[] = [
   {
     fileName: "tiny_face_detector_model-weights_manifest.json",
     responseType: "text",
-    expectedByteLength: 2953,
+    expectedByteLength: 2957,
   },
   {
-    fileName: "tiny_face_detector_model-shard1",
+    fileName: "tiny_face_detector_model-shard1.bin",
     responseType: "arraybuffer",
     expectedByteLength: 193321,
   },
   {
     fileName: "face_expression_model-weights_manifest.json",
     responseType: "text",
-    expectedByteLength: 6384,
+    expectedByteLength: 6388,
   },
   {
-    fileName: "face_expression_model-shard1",
+    fileName: "face_expression_model-shard1.bin",
     responseType: "arraybuffer",
     expectedByteLength: 329468,
   },

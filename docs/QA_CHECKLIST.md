@@ -37,6 +37,7 @@
 - [ ] カメラ失敗時に `診断情報を表示` から詳細を確認できる
 - [ ] model 読み込み失敗時に `診断情報を表示` から candidate / fetch / XHR の結果を確認できる
 - [ ] shard の byte 数が `3652 bytes` 前後になっていないことを確認できる
+- [ ] model shard が `.bin` として読み込まれ、`tiny_face_detector_model-shard1.bin` は `193321 bytes`、`face_expression_model-shard1.bin` は `329468 bytes` になっている
 - [ ] 横画面でノッチやホームインジケータに UI が重ならない
 - [ ] HUD の文字が小さすぎない
 - [ ] タッチボタンが押しやすい
