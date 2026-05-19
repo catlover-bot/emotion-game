@@ -16,6 +16,34 @@ export type CameraAttemptDiagnostics = {
   videoHeight: number;
 };
 
+export type ModelAssetCheck = {
+  assetName: string;
+  url: string;
+  responseType: "text" | "arraybuffer";
+  fetchSuccess: boolean;
+  fetchStatus: string;
+  fetchByteLength: number;
+  fetchErrorName: string;
+  fetchErrorMessage: string;
+  xhrSuccess: boolean;
+  xhrStatus: string;
+  xhrByteLength: number;
+  xhrErrorName: string;
+  xhrErrorMessage: string;
+};
+
+export type ModelCandidateDiagnostics = {
+  candidate: string;
+  resolvedBaseUrl: string;
+  allAssetsReadable: boolean;
+  usedXhrFallback: boolean;
+  faceApiAttempted: boolean;
+  faceApiSucceeded: boolean;
+  faceApiErrorName: string;
+  faceApiErrorMessage: string;
+  assetChecks: ModelAssetCheck[];
+};
+
 export type CameraDiagnostics = {
   phase: "camera" | "models";
   errorName: string;
@@ -31,6 +59,9 @@ export type CameraDiagnostics = {
   videoHeight: number;
   notes: string[];
   modelUrl: string;
+  selectedModelCandidate: string;
+  modelAssetChecks: ModelAssetCheck[];
+  modelCandidates: ModelCandidateDiagnostics[];
 };
 
 export class CameraSetupError extends Error {
@@ -102,6 +133,9 @@ function createDiagnostics(): CameraDiagnostics {
     videoHeight: 0,
     notes: [],
     modelUrl: "",
+    selectedModelCandidate: "",
+    modelAssetChecks: [],
+    modelCandidates: [],
   };
 }
 

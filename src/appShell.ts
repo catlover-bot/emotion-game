@@ -152,6 +152,10 @@ function getBooleanLabel(value: boolean): string {
   return value ? "true" : "false";
 }
 
+function getDiagnosticStatusLabel(value: boolean): string {
+  return value ? "成功" : "失敗";
+}
+
 export type AppShell = ReturnType<typeof createAppShell>;
 
 export function createAppShell(options: AppShellOptions) {
@@ -278,6 +282,75 @@ export function createAppShell(options: AppShellOptions) {
       })
       .join("");
 
+    const modelAssetCards = diagnostics.modelAssetChecks
+      .map((assetCheck) => {
+        const lines = [
+          `URL: ${assetCheck.url}`,
+          `fetch: ${getDiagnosticStatusLabel(assetCheck.fetchSuccess)}`,
+          `fetch status: ${assetCheck.fetchStatus || "-"}`,
+          `fetch bytes: ${assetCheck.fetchByteLength || 0}`,
+          `fetch error.name: ${assetCheck.fetchErrorName || "-"}`,
+          `fetch error.message: ${assetCheck.fetchErrorMessage || "-"}`,
+          `XHR: ${getDiagnosticStatusLabel(assetCheck.xhrSuccess)}`,
+          `XHR status: ${assetCheck.xhrStatus || "-"}`,
+          `XHR bytes: ${assetCheck.xhrByteLength || 0}`,
+          `XHR error.name: ${assetCheck.xhrErrorName || "-"}`,
+          `XHR error.message: ${assetCheck.xhrErrorMessage || "-"}`,
+        ]
+          .map((line) => `<span>${escapeHtml(line)}</span>`)
+          .join("");
+
+        return `
+          <div class="diagnostic-card">
+            <strong>${escapeHtml(assetCheck.assetName)}</strong>
+            ${lines}
+          </div>
+        `;
+      })
+      .join("");
+
+    const modelCandidateCards = diagnostics.modelCandidates
+      .map((candidate, index) => {
+        const lines = [
+          `candidate: ${candidate.candidate}`,
+          `resolved: ${candidate.resolvedBaseUrl}`,
+          `asset readable: ${getDiagnosticStatusLabel(candidate.allAssetsReadable)}`,
+          `XHR fallback needed: ${getBooleanLabel(candidate.usedXhrFallback)}`,
+          `face-api load: ${
+            candidate.faceApiAttempted
+              ? getDiagnosticStatusLabel(candidate.faceApiSucceeded)
+              : "未実行"
+          }`,
+          `face-api error.name: ${candidate.faceApiErrorName || "-"}`,
+          `face-api error.message: ${candidate.faceApiErrorMessage || "-"}`,
+        ]
+          .map((line) => `<span>${escapeHtml(line)}</span>`)
+          .join("");
+
+        const assetLines = candidate.assetChecks
+          .map((assetCheck) => {
+            const fetchText = `${getDiagnosticStatusLabel(assetCheck.fetchSuccess)} (${assetCheck.fetchStatus || "-"})`;
+            const xhrText = `${getDiagnosticStatusLabel(assetCheck.xhrSuccess)} (${assetCheck.xhrStatus || "-"})`;
+            return `
+              <span>
+                ${escapeHtml(
+                  `${assetCheck.assetName}: fetch ${fetchText}, xhr ${xhrText}, bytes ${assetCheck.fetchByteLength || assetCheck.xhrByteLength || 0}`,
+                )}
+              </span>
+            `;
+          })
+          .join("");
+
+        return `
+          <div class="diagnostic-card">
+            <strong>model 候補 ${index + 1}</strong>
+            ${lines}
+            ${assetLines}
+          </div>
+        `;
+      })
+      .join("");
+
     const detailsHtml = state.cameraDiagnosticsExpanded
       ? `
           <div class="diagnostic-panel">
@@ -296,10 +369,13 @@ export function createAppShell(options: AppShellOptions) {
               <span>video.readyState: ${diagnostics.videoReadyState}</span>
               <span>video size: ${diagnostics.videoWidth} x ${diagnostics.videoHeight}</span>
               <span>phase: ${escapeHtml(diagnostics.phase)}</span>
+              <span>selected model candidate: ${escapeHtml(diagnostics.selectedModelCandidate || "-")}</span>
               <span>model URL: ${escapeHtml(diagnostics.modelUrl || "-")}</span>
             </div>
             ${noteHtml}
             ${attemptCards}
+            ${modelAssetCards}
+            ${modelCandidateCards}
           </div>
         `
       : "";
@@ -570,6 +646,9 @@ export function createAppShell(options: AppShellOptions) {
   function getCameraErrorHtml() {
     const message = state.cameraMessage || "カメラの起動に失敗しました。";
     const title = state.cameraTitle || "カメラを起動できませんでした";
+    const retryLabel = state.cameraDiagnostics?.phase === "models"
+      ? "もう一度モデルを確認"
+      : "もう一度カメラを確認";
 
     return `
       <section class="modal-screen">
@@ -579,7 +658,7 @@ export function createAppShell(options: AppShellOptions) {
           <p>${escapeHtml(message)}</p>
           <p>タップ操作でそのまま遊べます。必要なときだけ後からカメラを再確認してください。</p>
           <div class="button-row">
-            <button type="button" data-action="enable-camera" class="primary-button">もう一度カメラを確認</button>
+            <button type="button" data-action="enable-camera" class="primary-button">${retryLabel}</button>
             <button type="button" data-action="continue-without-camera" class="ghost-button">タップ操作で遊ぶ</button>
           </div>
           ${getCameraDiagnosticsHtml()}

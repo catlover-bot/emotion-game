@@ -3,7 +3,12 @@ import type { CameraDiagnostics } from "./camera";
 import { CameraSetupError, setupCamera, stopCamera } from "./camera";
 import { clearOwnedCosmetics } from "./cosmetics";
 import { createGame, type Game } from "./game";
-import { getFaceModelBaseUrl, setupFaceModels, startExpressionLoop } from "./face";
+import {
+  FaceModelSetupError,
+  getFaceModelBaseUrl,
+  setupFaceModels,
+  startExpressionLoop,
+} from "./face";
 import { createAppShell, type CameraUiState } from "./appShell";
 import {
   clearAppStorage,
@@ -38,6 +43,9 @@ function createRuntimeDiagnostics(video: HTMLVideoElement): CameraDiagnostics {
     videoHeight: video.videoHeight,
     notes: [],
     modelUrl: "",
+    selectedModelCandidate: "",
+    modelAssetChecks: [],
+    modelCandidates: [],
   };
 }
 
@@ -55,6 +63,7 @@ function createModelFailureDiagnostics(
   diagnostics.videoWidth = video.videoWidth;
   diagnostics.videoHeight = video.videoHeight;
   diagnostics.modelUrl = getFaceModelBaseUrl();
+  diagnostics.selectedModelCandidate = "";
   diagnostics.notes.push(
     "カメラ映像は取得できましたが、表情認識モデルの読み込みに失敗しました。",
   );
@@ -286,13 +295,16 @@ export async function startApp(startup: StartupReporter) {
       startup.setStage("models-loading", "表情認識モデルを読み込んでいます…");
       setCameraUi("requesting", "表情認識の準備をしています...");
       try {
-        await setupFaceModels();
+        lastCameraDiagnostics = await setupFaceModels(lastCameraDiagnostics);
       } catch (error) {
-        const diagnostics = createModelFailureDiagnostics(lastCameraDiagnostics, video, error);
-        console.error("EMOTION_RUNNER_CAMERA model-setup-failed", {
+        const diagnostics = error instanceof FaceModelSetupError
+          ? error.diagnostics
+          : createModelFailureDiagnostics(lastCameraDiagnostics, video, error);
+        console.error("EMOTION_RUNNER_MODEL setup-failed", {
           errorName: diagnostics.errorName,
           errorMessage: diagnostics.errorMessage,
           modelUrl: diagnostics.modelUrl,
+          selectedModelCandidate: diagnostics.selectedModelCandidate,
           videoReadyState: diagnostics.videoReadyState,
           videoWidth: diagnostics.videoWidth,
           videoHeight: diagnostics.videoHeight,
@@ -301,9 +313,9 @@ export async function startApp(startup: StartupReporter) {
         stopCamera(video);
         setCameraUi(
           "error",
-          "表情認識の準備に失敗しました。いまはタップ操作で遊べます。",
+          "カメラは起動しましたが、表情認識モデルの読み込みに失敗しました。いまはタップ操作で遊べます。",
           {
-            title: "表情認識の準備に失敗しました",
+            title: "表情認識モデルを読み込めませんでした",
             diagnostics,
           },
         );

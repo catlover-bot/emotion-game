@@ -33,6 +33,7 @@
 - [ ] 実機で笑顔 / 怒った顔 / 驚いた顔 / 悲しい顔が認識される
 - [ ] 表情認識が不安定でもタップ操作で最後まで遊べる
 - [ ] カメラ失敗時に `診断情報を表示` から詳細を確認できる
+- [ ] model 読み込み失敗時に `診断情報を表示` から candidate / fetch / XHR の結果を確認できる
 - [ ] 横画面でノッチやホームインジケータに UI が重ならない
 - [ ] HUD の文字が小さすぎない
 - [ ] タッチボタンが押しやすい
@@ -45,3 +46,4 @@
 - [ ] App Store 用スクリーンショットとして見栄えがする
 - [ ] 新しい Archive 前に Xcode の Build 番号を増やしている
 - [ ] Xcode Console / Devices and Simulators Console で `EMOTION_RUNNER_CAMERA` を検索できる
+- [ ] Xcode Console / Devices and Simulators Console で `EMOTION_RUNNER_MODEL` を検索できる
