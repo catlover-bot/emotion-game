@@ -3,6 +3,7 @@
 
 import type {
   CameraDiagnostics,
+  ExpressionRuntimeDiagnostic,
   ModelAssetCheck,
   ModelCandidateDiagnostics,
 } from "./camera";
@@ -61,6 +62,16 @@ let selectedModelBaseCandidate = "./models";
 let originalFetch: typeof fetch | null = null;
 let wrappedModelFetch: typeof fetch | null = null;
 
+export class ExpressionLoopSetupError extends Error {
+  readonly diagnostics: ExpressionRuntimeDiagnostic[];
+
+  constructor(message: string, diagnostics: ExpressionRuntimeDiagnostic[], cause?: unknown) {
+    super(message);
+    this.name = cause instanceof Error && cause.name ? cause.name : "ExpressionLoopSetupError";
+    this.diagnostics = diagnostics;
+  }
+}
+
 export class FaceModelSetupError extends Error {
   readonly diagnostics: CameraDiagnostics;
 
@@ -96,6 +107,7 @@ function createEmptyDiagnostics(): CameraDiagnostics {
     selectedModelCandidate: "",
     modelAssetChecks: [],
     modelCandidates: [],
+    expressionDiagnostics: [],
   };
 }
 
@@ -115,6 +127,7 @@ function cloneDiagnostics(base: CameraDiagnostics | null): CameraDiagnostics {
     selectedModelCandidate: "",
     modelAssetChecks: [],
     modelCandidates: [],
+    expressionDiagnostics: base.expressionDiagnostics.map((entry) => ({ ...entry })),
   };
 }
 
@@ -149,6 +162,22 @@ function logModelError(message: string, payload?: unknown) {
     return;
   }
   console.error(`EMOTION_RUNNER_MODEL ${message}`, payload);
+}
+
+function logExpressionInfo(message: string, payload?: unknown) {
+  if (payload === undefined) {
+    console.info(`EMOTION_RUNNER_EXPR ${message}`);
+    return;
+  }
+  console.info(`EMOTION_RUNNER_EXPR ${message}`, payload);
+}
+
+function logExpressionError(message: string, payload?: unknown) {
+  if (payload === undefined) {
+    console.error(`EMOTION_RUNNER_EXPR ${message}`);
+    return;
+  }
+  console.error(`EMOTION_RUNNER_EXPR ${message}`, payload);
 }
 
 function getRawFetch(): typeof fetch {
@@ -415,15 +444,26 @@ function toResponseFromXhr(
   const contentType = result.contentType ||
     (responseType === "text" ? "application/json" : "application/octet-stream");
 
-  return new Response(result.body, {
-    status: 200,
-    statusText: "OK",
-    headers: {
-      "Content-Type": contentType,
-      "X-Emotion-Runner-Source": "xhr-fallback",
-      "X-Emotion-Runner-Url": url,
-    },
-  });
+  try {
+    return new Response(result.body, {
+      status: 200,
+      statusText: "OK",
+      headers: {
+        "Content-Type": contentType,
+        "X-Emotion-Runner-Source": "xhr-fallback",
+        "X-Emotion-Runner-Url": url,
+      },
+    });
+  } catch (error) {
+    logModelError("response-constructor-failed", {
+      url,
+      source: "xhr-fallback",
+      errorName: getErrorName(error),
+      errorMessage: getErrorMessage(error),
+      errorStack: error instanceof Error ? error.stack ?? "" : "",
+    });
+    throw error;
+  }
 }
 
 function toResponseFromFetch(
@@ -434,17 +474,28 @@ function toResponseFromFetch(
   body: string | ArrayBuffer,
   contentType: string | null,
 ): Response {
-  return new Response(body, {
-    status: status || 200,
-    statusText: statusText || "OK",
-    headers: {
-      "Content-Type": contentType || (responseType === "text"
-        ? "application/json"
-        : "application/octet-stream"),
-      "X-Emotion-Runner-Source": "fetch",
-      "X-Emotion-Runner-Url": url,
-    },
-  });
+  try {
+    return new Response(body, {
+      status: status || 200,
+      statusText: statusText || "OK",
+      headers: {
+        "Content-Type": contentType || (responseType === "text"
+          ? "application/json"
+          : "application/octet-stream"),
+        "X-Emotion-Runner-Source": "fetch",
+        "X-Emotion-Runner-Url": url,
+      },
+    });
+  } catch (error) {
+    logModelError("response-constructor-failed", {
+      url,
+      source: "fetch",
+      errorName: getErrorName(error),
+      errorMessage: getErrorMessage(error),
+      errorStack: error instanceof Error ? error.stack ?? "" : "",
+    });
+    throw error;
+  }
 }
 
 function ensureModelFetchFallback(faceapi: FaceApiModule) {
@@ -563,6 +614,18 @@ function ensureModelFetchFallback(faceapi: FaceApiModule) {
   }
 }
 
+function restoreModelFetchFallback(faceapi: FaceApiModule) {
+  if (!originalFetch || !wrappedModelFetch) {
+    return;
+  }
+
+  window.fetch = originalFetch;
+  globalThis.fetch = originalFetch;
+  faceapi.env.monkeyPatch({ fetch: originalFetch });
+  wrappedModelFetch = null;
+  logModelInfo("fetch-wrapper-restored");
+}
+
 async function inspectCandidate(candidate: string): Promise<ModelCandidateDiagnostics> {
   const resolvedBaseUrl = resolveCandidateBaseUrl(candidate);
   const assetChecks = await Promise.all(
@@ -621,103 +684,107 @@ export async function setupFaceModels(
   const candidates = getModelBaseCandidates();
   let lastError: unknown = null;
 
-  logModelInfo("models-loading", { candidates });
+  try {
+    logModelInfo("models-loading", { candidates });
 
-  for (const candidate of candidates) {
-    const candidateDiagnostics = await inspectCandidate(candidate);
-    diagnostics.modelCandidates.push(candidateDiagnostics);
-    diagnostics.modelAssetChecks = candidateDiagnostics.assetChecks;
-    diagnostics.modelUrl = candidateDiagnostics.resolvedBaseUrl;
-    diagnostics.selectedModelCandidate = candidate;
-
-    logModelInfo("candidate-check-complete", {
-      candidate,
-      resolvedBaseUrl: candidateDiagnostics.resolvedBaseUrl,
-      allAssetsReadable: candidateDiagnostics.allAssetsReadable,
-      usedXhrFallback: candidateDiagnostics.usedXhrFallback,
-    });
-
-    if (
-      candidateDiagnostics.assetChecks.some(
-        (check) => check.fetchErrorName === "UnexpectedAssetSize" && check.xhrSuccess,
-      )
-    ) {
-      diagnostics.notes.push(
-        "Capacitor の fetch で model shard の byte 数が崩れたため、XHR に切り替えて読み込みます。",
-      );
-    }
-
-    if (
-      candidateDiagnostics.assetChecks.some(
-        (check) => check.xhrErrorName === "UnexpectedAssetSize",
-      )
-    ) {
-      diagnostics.notes.push(
-        "表情認識モデルのファイルが壊れている可能性があります。",
-      );
-    }
-
-    if (!candidateDiagnostics.allAssetsReadable) {
-      candidateDiagnostics.faceApiErrorName = "AssetCheckFailed";
-      candidateDiagnostics.faceApiErrorMessage =
-        "manifest または shard を読み取れないため、この候補はスキップしました。";
-      continue;
-    }
-
-    candidateDiagnostics.faceApiAttempted = true;
-    try {
-      logModelInfo("candidate-load-start", {
-        candidate,
-        resolvedBaseUrl: candidateDiagnostics.resolvedBaseUrl,
-      });
-      await faceapi.nets.tinyFaceDetector.loadFromUri(candidate);
-      await faceapi.nets.faceExpressionNet.loadFromUri(candidate);
-      candidateDiagnostics.faceApiSucceeded = true;
-      modelsLoaded = true;
-      selectedModelBaseCandidate = candidate;
+    for (const candidate of candidates) {
+      const candidateDiagnostics = await inspectCandidate(candidate);
+      diagnostics.modelCandidates.push(candidateDiagnostics);
+      diagnostics.modelAssetChecks = candidateDiagnostics.assetChecks;
       diagnostics.modelUrl = candidateDiagnostics.resolvedBaseUrl;
       diagnostics.selectedModelCandidate = candidate;
-      diagnostics.notes.push(
-        candidateDiagnostics.usedXhrFallback
-          ? "fetch で失敗した model asset は XHR で補完して読み込みました。"
-          : "相対パスの model asset をそのまま読み込めました。",
-      );
-      logModelInfo("candidate-load-success", {
+
+      logModelInfo("candidate-check-complete", {
         candidate,
         resolvedBaseUrl: candidateDiagnostics.resolvedBaseUrl,
+        allAssetsReadable: candidateDiagnostics.allAssetsReadable,
+        usedXhrFallback: candidateDiagnostics.usedXhrFallback,
       });
-      logModelInfo("models-ready", {
-        selectedModelCandidate: selectedModelBaseCandidate,
-        modelUrl: diagnostics.modelUrl,
-      });
-      return diagnostics;
-    } catch (error) {
-      lastError = error;
-      candidateDiagnostics.faceApiErrorName = getErrorName(error);
-      candidateDiagnostics.faceApiErrorMessage = getErrorMessage(error);
-      diagnostics.errorName = candidateDiagnostics.faceApiErrorName;
-      diagnostics.errorMessage = candidateDiagnostics.faceApiErrorMessage;
-      logModelError("candidate-load-failed", {
-        candidate,
-        resolvedBaseUrl: candidateDiagnostics.resolvedBaseUrl,
-        errorName: candidateDiagnostics.faceApiErrorName,
-        errorMessage: candidateDiagnostics.faceApiErrorMessage,
-      });
+
+      if (
+        candidateDiagnostics.assetChecks.some(
+          (check) => check.fetchErrorName === "UnexpectedAssetSize" && check.xhrSuccess,
+        )
+      ) {
+        diagnostics.notes.push(
+          "Capacitor の fetch で model shard の byte 数が崩れたため、XHR に切り替えて読み込みます。",
+        );
+      }
+
+      if (
+        candidateDiagnostics.assetChecks.some(
+          (check) => check.xhrErrorName === "UnexpectedAssetSize",
+        )
+      ) {
+        diagnostics.notes.push(
+          "表情認識モデルのファイルが壊れている可能性があります。",
+        );
+      }
+
+      if (!candidateDiagnostics.allAssetsReadable) {
+        candidateDiagnostics.faceApiErrorName = "AssetCheckFailed";
+        candidateDiagnostics.faceApiErrorMessage =
+          "manifest または shard を読み取れないため、この候補はスキップしました。";
+        continue;
+      }
+
+      candidateDiagnostics.faceApiAttempted = true;
+      try {
+        logModelInfo("candidate-load-start", {
+          candidate,
+          resolvedBaseUrl: candidateDiagnostics.resolvedBaseUrl,
+        });
+        await faceapi.nets.tinyFaceDetector.loadFromUri(candidate);
+        await faceapi.nets.faceExpressionNet.loadFromUri(candidate);
+        candidateDiagnostics.faceApiSucceeded = true;
+        modelsLoaded = true;
+        selectedModelBaseCandidate = candidate;
+        diagnostics.modelUrl = candidateDiagnostics.resolvedBaseUrl;
+        diagnostics.selectedModelCandidate = candidate;
+        diagnostics.notes.push(
+          candidateDiagnostics.usedXhrFallback
+            ? "fetch で失敗した model asset は XHR で補完して読み込みました。"
+            : "相対パスの model asset をそのまま読み込めました。",
+        );
+        logModelInfo("candidate-load-success", {
+          candidate,
+          resolvedBaseUrl: candidateDiagnostics.resolvedBaseUrl,
+        });
+        logModelInfo("models-ready", {
+          selectedModelCandidate: selectedModelBaseCandidate,
+          modelUrl: diagnostics.modelUrl,
+        });
+        return diagnostics;
+      } catch (error) {
+        lastError = error;
+        candidateDiagnostics.faceApiErrorName = getErrorName(error);
+        candidateDiagnostics.faceApiErrorMessage = getErrorMessage(error);
+        diagnostics.errorName = candidateDiagnostics.faceApiErrorName;
+        diagnostics.errorMessage = candidateDiagnostics.faceApiErrorMessage;
+        logModelError("candidate-load-failed", {
+          candidate,
+          resolvedBaseUrl: candidateDiagnostics.resolvedBaseUrl,
+          errorName: candidateDiagnostics.faceApiErrorName,
+          errorMessage: candidateDiagnostics.faceApiErrorMessage,
+        });
+      }
     }
+
+    diagnostics.errorName = diagnostics.errorName || getErrorName(lastError);
+    diagnostics.errorMessage =
+      diagnostics.errorMessage || getErrorMessage(lastError) || "表情認識モデルの読み込みに失敗しました。";
+    diagnostics.notes.push(
+      "Capacitor iOS では absolute URL と relative URL の扱いが異なるため、複数の model パス候補を順番に確認しました。",
+    );
+
+    throw new FaceModelSetupError(
+      diagnostics.errorMessage || "表情認識モデルの読み込みに失敗しました。",
+      diagnostics,
+      lastError,
+    );
+  } finally {
+    restoreModelFetchFallback(faceapi);
   }
-
-  diagnostics.errorName = diagnostics.errorName || getErrorName(lastError);
-  diagnostics.errorMessage =
-    diagnostics.errorMessage || getErrorMessage(lastError) || "表情認識モデルの読み込みに失敗しました。";
-  diagnostics.notes.push(
-    "Capacitor iOS では absolute URL と relative URL の扱いが異なるため、複数の model パス候補を順番に確認しました。",
-  );
-
-  throw new FaceModelSetupError(
-    diagnostics.errorMessage || "表情認識モデルの読み込みに失敗しました。",
-    diagnostics,
-    lastError,
-  );
 }
 
 /**
@@ -726,17 +793,64 @@ export async function setupFaceModels(
 export function startExpressionLoop(
   video: HTMLVideoElement,
   onExpression: (exp: Expression) => void,
-): void {
+  onRuntimeError?: (error: unknown, diagnostics: ExpressionRuntimeDiagnostic[]) => void,
+): { stop(): void; getDiagnostics(): ExpressionRuntimeDiagnostic[] } {
+  const diagnostics: ExpressionRuntimeDiagnostic[] = [];
+
+  const createDiagnostic = (
+    stage: string,
+    success: boolean,
+    error?: unknown,
+  ): ExpressionRuntimeDiagnostic => ({
+    stage,
+    success,
+    faceApiLoaded: faceApiModule !== null,
+    modelsLoaded,
+    videoReadyState: video.readyState,
+    videoWidth: video.videoWidth,
+    videoHeight: video.videoHeight,
+    errorName: error ? getErrorName(error) : "",
+    errorMessage: error ? getErrorMessage(error) : "",
+    errorStack: error instanceof Error ? error.stack ?? "" : "",
+  });
+
+  const record = (stage: string, success: boolean, error?: unknown) => {
+    const diagnostic = createDiagnostic(stage, success, error);
+    diagnostics.push(diagnostic);
+    return diagnostic;
+  };
+
+  logExpressionInfo("loop-start", {
+    faceApiLoaded: faceApiModule !== null,
+    modelsLoaded,
+    videoReadyState: video.readyState,
+    videoWidth: video.videoWidth,
+    videoHeight: video.videoHeight,
+  });
+  record("loop-start", true);
+
   if (!faceApiModule) {
-    console.warn("startExpressionLoop called before face-api was loaded");
-    return;
+    const error = new Error("face-api module is not loaded.");
+    record("face-api-missing", false, error);
+    logExpressionError("face-api-missing", {
+      errorName: error.name,
+      errorMessage: error.message,
+      errorStack: error.stack ?? "",
+    });
+    throw new ExpressionLoopSetupError(error.message, diagnostics, error);
   }
 
   if (!modelsLoaded) {
-    console.warn("startExpressionLoop called before models loaded");
+    logExpressionError("models-not-loaded", {
+      faceApiLoaded: faceApiModule !== null,
+      modelsLoaded,
+    });
+    record("models-not-loaded", false);
   }
 
   const faceapi = faceApiModule;
+  let stopped = false;
+  let timerId = 0;
 
   // スムージング用スコア
   const smoothed: Record<Expression, number> = {
@@ -759,16 +873,55 @@ export function startExpressionLoop(
   const SURPRISED_MIN = 0.20;
   const SAD_MIN = 0.18;
 
-  const options = new faceapi.TinyFaceDetectorOptions({
-    inputSize: 224,
-    scoreThreshold: 0.35, // 検出自体も少し甘め
-  });
+  let options: InstanceType<typeof faceapi.TinyFaceDetectorOptions>;
+
+  try {
+    options = new faceapi.TinyFaceDetectorOptions({
+      inputSize: 224,
+      scoreThreshold: 0.35, // 検出自体も少し甘め
+    });
+    record("tiny-face-detector-options-created", true);
+    logExpressionInfo("tiny-face-detector-options-created");
+  } catch (error) {
+    record("tiny-face-detector-options-failed", false, error);
+    logExpressionError("tiny-face-detector-options-failed", {
+      errorName: getErrorName(error),
+      errorMessage: getErrorMessage(error),
+      errorStack: error instanceof Error ? error.stack ?? "" : "",
+    });
+    throw new ExpressionLoopSetupError(getErrorMessage(error), diagnostics, error);
+  }
+
+  let detectCount = 0;
 
   async function loop() {
+    if (stopped) return;
+
+    const isFirstDetect = detectCount === 0;
     try {
+      if (isFirstDetect) {
+        record("first-detect-start", true);
+        logExpressionInfo("first-detect-start", {
+          videoReadyState: video.readyState,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+        });
+      }
+
       const result = await faceapi
         .detectSingleFace(video, options)
         .withFaceExpressions();
+
+      detectCount += 1;
+
+      if (isFirstDetect) {
+        record("first-detect-success", true);
+        logExpressionInfo("first-detect-success", {
+          videoReadyState: video.readyState,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+        });
+      }
 
       if (result && result.expressions) {
         const exps = result.expressions;
@@ -810,7 +963,10 @@ export function startExpressionLoop(
         // 4) 直前と違うときだけ通知（ピカピカ変わらないように）
         if (best !== lastExp) {
           lastExp = best;
-          console.log("expression =>", best, "(smoothed:", { ...smoothed }, ")");
+          logExpressionInfo("expression-change", {
+            expression: best,
+            smoothed: { ...smoothed },
+          });
           onExpression(best);
         }
       } else {
@@ -820,17 +976,43 @@ export function startExpressionLoop(
         const fallback: Expression = "neutral";
         if (fallback !== lastExp) {
           lastExp = fallback;
-          console.log("no face detected, fallback => neutral");
+          logExpressionInfo("no-face-detected", { fallback });
           onExpression(fallback);
         }
       }
     } catch (error) {
-      console.error("表情検出中にエラー:", error);
+      const stage = isFirstDetect ? "first-detect-failed" : "detect-failed";
+      record(stage, false, error);
+      logExpressionError(stage, {
+        errorName: getErrorName(error),
+        errorMessage: getErrorMessage(error),
+        errorStack: error instanceof Error ? error.stack ?? "" : "",
+        videoReadyState: video.readyState,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+      });
+      stopped = true;
+      onRuntimeError?.(error, diagnostics.map((entry) => ({ ...entry })));
+      return;
     }
 
     // だいたい 6〜8fps 程度
-    setTimeout(loop, 130);
+    timerId = window.setTimeout(() => {
+      void loop();
+    }, 130);
   }
 
-  loop();
+  void loop();
+
+  return {
+    stop() {
+      stopped = true;
+      window.clearTimeout(timerId);
+      record("loop-stopped", true);
+      logExpressionInfo("loop-stopped");
+    },
+    getDiagnostics() {
+      return diagnostics.map((entry) => ({ ...entry }));
+    },
+  };
 }

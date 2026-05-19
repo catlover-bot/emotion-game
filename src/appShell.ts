@@ -7,6 +7,7 @@ export type CameraUiState =
   | "idle"
   | "requesting"
   | "ready"
+  | "expressionUnavailable"
   | "denied"
   | "unsupported"
   | "error";
@@ -227,6 +228,19 @@ export function createAppShell(options: AppShellOptions) {
       `;
     }
 
+    if (state.cameraState === "expressionUnavailable") {
+      return `
+        <div class="floating-banner is-warning">
+          <strong>表情認識が使えないため、タップ操作で遊べます</strong>
+          <span>カメラは起動していますが、表情認識の実行だけを停止しました。</span>
+          <div class="button-row compact-row">
+            <button type="button" data-action="enable-camera" class="ghost-button">もう一度確認</button>
+          </div>
+          ${getCameraDiagnosticsHtml()}
+        </div>
+      `;
+    }
+
     return `
       <div class="floating-banner is-warning">
         <strong>いまはタップ操作で遊べます</strong>
@@ -351,6 +365,31 @@ export function createAppShell(options: AppShellOptions) {
       })
       .join("");
 
+    const expressionCards = diagnostics.expressionDiagnostics
+      .map((entry, index) => {
+        const lines = [
+          `stage: ${entry.stage}`,
+          `結果: ${entry.success ? "成功" : "失敗"}`,
+          `face-api loaded: ${getBooleanLabel(entry.faceApiLoaded)}`,
+          `models loaded: ${getBooleanLabel(entry.modelsLoaded)}`,
+          `video.readyState: ${entry.videoReadyState}`,
+          `video size: ${entry.videoWidth} x ${entry.videoHeight}`,
+          `error.name: ${entry.errorName || "-"}`,
+          `error.message: ${entry.errorMessage || "-"}`,
+          `error.stack: ${entry.errorStack || "-"}`,
+        ]
+          .map((line) => `<span>${escapeHtml(line)}</span>`)
+          .join("");
+
+        return `
+          <div class="diagnostic-card">
+            <strong>expression ${index + 1}</strong>
+            ${lines}
+          </div>
+        `;
+      })
+      .join("");
+
     const detailsHtml = state.cameraDiagnosticsExpanded
       ? `
           <div class="diagnostic-panel">
@@ -376,6 +415,7 @@ export function createAppShell(options: AppShellOptions) {
             ${attemptCards}
             ${modelAssetCards}
             ${modelCandidateCards}
+            ${expressionCards}
           </div>
         `
       : "";
@@ -1059,6 +1099,8 @@ export function createAppShell(options: AppShellOptions) {
         setOverlay("cameraDenied");
       } else if (cameraState === "unsupported" || cameraState === "error") {
         setOverlay("cameraError");
+      } else if (cameraState === "expressionUnavailable") {
+        setOverlay("none");
       } else if (cameraState === "ready" && state.overlay !== "practice") {
         setOverlay("none");
       } else {

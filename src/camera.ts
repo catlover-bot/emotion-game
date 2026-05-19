@@ -44,8 +44,21 @@ export type ModelCandidateDiagnostics = {
   assetChecks: ModelAssetCheck[];
 };
 
+export type ExpressionRuntimeDiagnostic = {
+  stage: string;
+  success: boolean;
+  faceApiLoaded: boolean;
+  modelsLoaded: boolean;
+  videoReadyState: number;
+  videoWidth: number;
+  videoHeight: number;
+  errorName: string;
+  errorMessage: string;
+  errorStack: string;
+};
+
 export type CameraDiagnostics = {
-  phase: "camera" | "models";
+  phase: "camera" | "models" | "expression";
   errorName: string;
   errorMessage: string;
   mediaDevicesExists: boolean;
@@ -62,6 +75,7 @@ export type CameraDiagnostics = {
   selectedModelCandidate: string;
   modelAssetChecks: ModelAssetCheck[];
   modelCandidates: ModelCandidateDiagnostics[];
+  expressionDiagnostics: ExpressionRuntimeDiagnostic[];
 };
 
 export class CameraSetupError extends Error {
@@ -136,6 +150,7 @@ function createDiagnostics(): CameraDiagnostics {
     selectedModelCandidate: "",
     modelAssetChecks: [],
     modelCandidates: [],
+    expressionDiagnostics: [],
   };
 }
 

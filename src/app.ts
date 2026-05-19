@@ -1,9 +1,10 @@
 import { getRequiredCanvas, getRequiredHtmlElement, getRequiredVideo } from "./dom";
-import type { CameraDiagnostics } from "./camera";
+import type { CameraDiagnostics, ExpressionRuntimeDiagnostic } from "./camera";
 import { CameraSetupError, setupCamera, stopCamera } from "./camera";
 import { clearOwnedCosmetics } from "./cosmetics";
 import { createGame, type Game } from "./game";
 import {
+  ExpressionLoopSetupError,
   FaceModelSetupError,
   getFaceModelBaseUrl,
   setupFaceModels,
@@ -46,7 +47,25 @@ function createRuntimeDiagnostics(video: HTMLVideoElement): CameraDiagnostics {
     selectedModelCandidate: "",
     modelAssetChecks: [],
     modelCandidates: [],
+    expressionDiagnostics: [],
   };
+}
+
+function getErrorName(error: unknown): string {
+  if (error instanceof Error && error.name) return error.name;
+  if (typeof error === "object" && error && "name" in error) {
+    return String((error as { name: unknown }).name);
+  }
+  return "UnknownError";
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string") return error;
+  if (typeof error === "object" && error && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return "不明なエラー";
 }
 
 function createModelFailureDiagnostics(
@@ -64,9 +83,45 @@ function createModelFailureDiagnostics(
   diagnostics.videoHeight = video.videoHeight;
   diagnostics.modelUrl = getFaceModelBaseUrl();
   diagnostics.selectedModelCandidate = "";
+  diagnostics.expressionDiagnostics = [...diagnostics.expressionDiagnostics];
   diagnostics.notes.push(
     "カメラ映像は取得できましたが、表情認識モデルの読み込みに失敗しました。",
   );
+  return diagnostics;
+}
+
+function createExpressionFailureDiagnostics(
+  base: CameraDiagnostics | null,
+  video: HTMLVideoElement,
+  error: unknown,
+  expressionDiagnostics: ExpressionRuntimeDiagnostic[],
+): CameraDiagnostics {
+  const diagnostics = base
+    ? {
+        ...base,
+        attempts: base.attempts.map((attempt) => ({ ...attempt })),
+        notes: [...base.notes],
+        modelAssetChecks: base.modelAssetChecks.map((check) => ({ ...check })),
+        modelCandidates: base.modelCandidates.map((candidate) => ({
+          ...candidate,
+          assetChecks: candidate.assetChecks.map((check) => ({ ...check })),
+        })),
+        expressionDiagnostics: expressionDiagnostics.map((entry) => ({ ...entry })),
+      }
+    : createRuntimeDiagnostics(video);
+
+  diagnostics.phase = "expression";
+  diagnostics.errorName = getErrorName(error);
+  diagnostics.errorMessage = getErrorMessage(error);
+  diagnostics.videoReadyState = video.readyState;
+  diagnostics.videoWidth = video.videoWidth;
+  diagnostics.videoHeight = video.videoHeight;
+  diagnostics.modelUrl = getFaceModelBaseUrl();
+  diagnostics.notes.push(
+    "カメラとモデルの準備後に、表情認識の実行でエラーが発生しました。",
+    "表情認識だけを停止し、タップ操作で遊べる状態にしています。",
+  );
+
   return diagnostics;
 }
 
@@ -109,6 +164,7 @@ export async function startApp(startup: StartupReporter) {
   let cameraState: CameraUiState = "idle";
   let lastCameraDiagnostics: CameraDiagnostics | null = null;
   let faceLoopStarted = false;
+  let stopFaceLoop: (() => void) | null = null;
   let pendingStartAfterTutorial = false;
   let game: Game | null = null;
   let shellVisibleNotified = false;
@@ -283,10 +339,81 @@ export async function startApp(startup: StartupReporter) {
     routeExpression();
   }
 
+  function markExpressionUnavailable(
+    error: unknown,
+    expressionDiagnostics: ExpressionRuntimeDiagnostic[],
+  ) {
+    currentExpression = "neutral";
+    appShell.setExpression("neutral");
+
+    stopFaceLoop?.();
+    stopFaceLoop = null;
+    faceLoopStarted = false;
+
+    const diagnostics = createExpressionFailureDiagnostics(
+      lastCameraDiagnostics,
+      video,
+      error,
+      expressionDiagnostics,
+    );
+    lastCameraDiagnostics = diagnostics;
+
+    console.error("EMOTION_RUNNER_EXPR unavailable", {
+      errorName: diagnostics.errorName,
+      errorMessage: diagnostics.errorMessage,
+      expressionDiagnostics: diagnostics.expressionDiagnostics,
+      videoReadyState: diagnostics.videoReadyState,
+      videoWidth: diagnostics.videoWidth,
+      videoHeight: diagnostics.videoHeight,
+    });
+
+    startup.setStage("expression-unavailable", "表情認識は停止しました。タップ操作で遊べます。");
+    setCameraUi(
+      "expressionUnavailable",
+      "カメラとタップ操作は使えます。いまはタップ操作で遊べます。",
+      {
+        title: "表情認識の実行に失敗しました",
+        diagnostics,
+      },
+    );
+  }
+
+  function startFaceLoopSafely(): boolean {
+    if (faceLoopStarted) {
+      return true;
+    }
+
+    try {
+      const controller = startExpressionLoop(
+        video,
+        (expression) => {
+          currentExpression = expression;
+          appShell.setExpression(expression);
+          routeExpression();
+        },
+        (error, diagnostics) => {
+          markExpressionUnavailable(error, diagnostics);
+        },
+      );
+      stopFaceLoop = controller.stop;
+      faceLoopStarted = true;
+      return true;
+    } catch (error) {
+      const expressionDiagnostics = error instanceof ExpressionLoopSetupError
+        ? error.diagnostics
+        : [];
+      markExpressionUnavailable(error, expressionDiagnostics);
+      return false;
+    }
+  }
+
   async function enableCamera() {
     if (cameraState === "requesting" || cameraState === "ready") return;
 
     finishOnboarding();
+    stopFaceLoop?.();
+    stopFaceLoop = null;
+    faceLoopStarted = false;
     startup.setStage("camera-waiting", "カメラの許可を確認しています…");
     setCameraUi("requesting", "カメラの許可を確認しています...");
 
@@ -322,13 +449,9 @@ export async function startApp(startup: StartupReporter) {
         return;
       }
 
-      if (!faceLoopStarted) {
-        startExpressionLoop(video, (expression) => {
-          currentExpression = expression;
-          appShell.setExpression(expression);
-          routeExpression();
-        });
-        faceLoopStarted = true;
+      startup.setStage("expression-loop-starting", "表情認識を開始しています…");
+      if (!startFaceLoopSafely()) {
+        return;
       }
 
       startup.setStage("camera-ready", "表情認識の準備ができました。");
@@ -420,6 +543,9 @@ export async function startApp(startup: StartupReporter) {
   }, 1000);
 
   window.addEventListener("pagehide", () => {
+    stopFaceLoop?.();
+    stopFaceLoop = null;
+    faceLoopStarted = false;
     stopCamera(video);
   });
 

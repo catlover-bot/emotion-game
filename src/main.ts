@@ -12,7 +12,7 @@ declare global {
 }
 
 const APP_NAME = "表情ランナー";
-const DIAGNOSTIC_BUILD = window.__EMOTION_RUNNER_BUILD__ ?? "10";
+const DIAGNOSTIC_BUILD = window.__EMOTION_RUNNER_BUILD__ ?? "11";
 
 const STAMP_BASE_STYLE = `
   position: fixed;
@@ -121,34 +121,37 @@ function renderHardBootStamp(detail: string, note?: string) {
   `;
 }
 
-function getErrorInfo(error: unknown): { name: string; message: string } {
+function getErrorInfo(error: unknown): { name: string; message: string; stack: string } {
   if (error instanceof Error) {
     return {
       name: error.name || "Error",
       message: error.message || "エラーメッセージが取得できませんでした。",
+      stack: error.stack ?? "",
     };
   }
 
   if (typeof error === "string") {
-    return { name: "Error", message: error };
+    return { name: "Error", message: error, stack: "" };
   }
 
   try {
     return {
       name: "UnknownError",
       message: JSON.stringify(error) || "不明なエラーが発生しました。",
+      stack: "",
     };
   } catch {
     return {
       name: "UnknownError",
       message: "不明なエラーが発生しました。",
+      stack: "",
     };
   }
 }
 
 function showStartupFailure(error: unknown) {
   const previousStage = startupStage;
-  const { name, message } = getErrorInfo(error);
+  const { name, message, stack } = getErrorInfo(error);
 
   startupStage = "app-error";
   startupDetail = message;
@@ -157,6 +160,18 @@ function showStartupFailure(error: unknown) {
   appReady = false;
 
   const stamp = getOrCreateHardBootStamp();
+  const diagnosticText = [
+    `${APP_NAME} TestFlight診断ビルド Build ${DIAGNOSTIC_BUILD}`,
+    `current stage: app-error`,
+    `previous stage: ${previousStage}`,
+    `startup detail: ${startupDetail}`,
+    `error.name: ${name}`,
+    `error.message: ${message}`,
+    `error.stack: ${stack || "-"}`,
+    `location.href: ${window.location.href}`,
+    `userAgent: ${navigator.userAgent}`,
+  ].join("\n");
+
   stamp.style.display = "flex";
   stamp.innerHTML = `
     <div style="${STAMP_WRAPPER_STYLE}">
@@ -175,9 +190,27 @@ function showStartupFailure(error: unknown) {
         <strong>エラーメッセージ</strong>
         <span>${escapeHtml(message)}</span>
       </div>
-      <button id="hardBootReloadButton" type="button" style="${STAMP_BUTTON_STYLE}">再読み込み</button>
+      <div style="${STAMP_PANEL_STYLE}">
+        <strong>スタック</strong>
+        <span>${escapeHtml(stack || "スタック情報は取得できませんでした。").replaceAll("\n", "<br>")}</span>
+      </div>
+      <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;">
+        <button id="hardBootCopyButton" type="button" style="${STAMP_BUTTON_STYLE}">診断情報をコピー</button>
+        <button id="hardBootReloadButton" type="button" style="${STAMP_BUTTON_STYLE}">再読み込み</button>
+      </div>
     </div>
   `;
+
+  stamp.querySelector<HTMLButtonElement>("#hardBootCopyButton")?.addEventListener("click", async () => {
+    const button = stamp.querySelector<HTMLButtonElement>("#hardBootCopyButton");
+    try {
+      await navigator.clipboard?.writeText(diagnosticText);
+      if (button) button.textContent = "コピーしました";
+    } catch {
+      if (button) button.textContent = "コピーできませんでした";
+      console.info("EMOTION_RUNNER_STARTUP_DIAG", diagnosticText);
+    }
+  });
 
   stamp.querySelector<HTMLButtonElement>("#hardBootReloadButton")?.addEventListener("click", () => {
     window.location.reload();
@@ -192,6 +225,22 @@ function setStage(stage: string, detail: string) {
   if (!appReady) {
     renderHardBootStamp(detail, `起動段階: ${stage}`);
   }
+}
+
+function handleGlobalStartupError(error: unknown) {
+  const info = getErrorInfo(error);
+
+  if (appReady || window.__EMOTION_RUNNER_APP_READY__ === true) {
+    console.error("EMOTION_RUNNER_RUNTIME_ERROR_AFTER_READY", {
+      stage: startupStage,
+      name: info.name,
+      message: info.message,
+      stack: info.stack,
+    });
+    return;
+  }
+
+  showStartupFailure(error);
 }
 
 function markAppShellVisible() {
@@ -213,12 +262,12 @@ function markAppShellVisible() {
 function installGlobalErrorHandlers() {
   window.addEventListener("error", (event) => {
     console.error("window error:", event.error ?? event.message);
-    showStartupFailure(event.error ?? event.message);
+    handleGlobalStartupError(event.error ?? event.message);
   });
 
   window.addEventListener("unhandledrejection", (event) => {
     console.error("unhandled rejection:", event.reason);
-    showStartupFailure(event.reason);
+    handleGlobalStartupError(event.reason);
   });
 }
 
