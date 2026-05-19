@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "validate:models": "node scripts/validate_face_models.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },

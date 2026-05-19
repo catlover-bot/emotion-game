@@ -13,6 +13,7 @@ type ModelAssetResponseType = "text" | "arraybuffer";
 type ModelAssetDefinition = {
   fileName: string;
   responseType: ModelAssetResponseType;
+  expectedByteLength: number;
 };
 type XhrAssetLoad = {
   status: number;
@@ -25,18 +26,22 @@ const MODEL_ASSETS: ModelAssetDefinition[] = [
   {
     fileName: "tiny_face_detector_model-weights_manifest.json",
     responseType: "text",
+    expectedByteLength: 2953,
   },
   {
     fileName: "tiny_face_detector_model-shard1",
     responseType: "arraybuffer",
+    expectedByteLength: 193321,
   },
   {
     fileName: "face_expression_model-weights_manifest.json",
     responseType: "text",
+    expectedByteLength: 6384,
   },
   {
     fileName: "face_expression_model-shard1",
     responseType: "arraybuffer",
+    expectedByteLength: 329468,
   },
 ];
 
@@ -186,6 +191,22 @@ function getAssetUrl(baseUrl: string, fileName: string): string {
   return new URL(fileName, baseUrl).toString();
 }
 
+function getFileNameFromUrl(url: string): string {
+  try {
+    const resolved = new URL(url, document.baseURI);
+    const pathname = resolved.pathname;
+    return pathname.slice(pathname.lastIndexOf("/") + 1);
+  } catch {
+    const withoutQuery = url.split("?")[0] ?? url;
+    return withoutQuery.slice(withoutQuery.lastIndexOf("/") + 1);
+  }
+}
+
+function findAssetDefinition(url: string): ModelAssetDefinition | null {
+  const fileName = getFileNameFromUrl(url);
+  return MODEL_ASSETS.find((asset) => asset.fileName === fileName) ?? null;
+}
+
 function getTextByteLength(text: string): number {
   return new TextEncoder().encode(text).byteLength;
 }
@@ -208,8 +229,19 @@ function isModelAssetRequest(url: string): boolean {
   }
 }
 
-function getResponseTypeForUrl(url: string): ModelAssetResponseType {
-  return url.endsWith(".json") ? "text" : "arraybuffer";
+function validateAssetByteLength(
+  asset: ModelAssetDefinition,
+  byteLength: number,
+): { valid: boolean; errorName: string; errorMessage: string } {
+  if (byteLength === asset.expectedByteLength) {
+    return { valid: true, errorName: "", errorMessage: "" };
+  }
+
+  return {
+    valid: false,
+    errorName: "UnexpectedAssetSize",
+    errorMessage: `${asset.fileName} should be ${asset.expectedByteLength} bytes but was ${byteLength} bytes`,
+  };
 }
 
 async function loadLocalAssetWithXHR(
@@ -268,7 +300,7 @@ async function loadLocalAssetWithXHR(
 
 async function runFetchCheck(
   url: string,
-  responseType: ModelAssetResponseType,
+  asset: ModelAssetDefinition,
 ): Promise<{
   success: boolean;
   status: string;
@@ -278,22 +310,30 @@ async function runFetchCheck(
 }> {
   try {
     const response = await getRawFetch()(url, { cache: "no-store" });
-    const body = responseType === "text"
+    const body = asset.responseType === "text"
       ? await response.text()
       : await response.arrayBuffer();
-    const byteLength = responseType === "text"
+    const byteLength = asset.responseType === "text"
       ? getTextByteLength(body as string)
       : (body as ArrayBuffer).byteLength;
-    const success = response.status < 400 || (response.status === 0 && byteLength > 0);
+    const statusOk = response.status < 400 || (response.status === 0 && byteLength > 0);
+    const sizeCheck = validateAssetByteLength(asset, byteLength);
+    const success = statusOk && sizeCheck.valid;
 
     return {
       success,
       status: `${response.status} ${response.statusText}`.trim(),
       byteLength,
-      errorName: success ? "" : "FetchStatusError",
+      errorName: success
+        ? ""
+        : statusOk
+          ? sizeCheck.errorName
+          : "FetchStatusError",
       errorMessage: success
         ? ""
-        : `fetch returned status ${response.status} for ${response.url || url}`,
+        : statusOk
+          ? sizeCheck.errorMessage
+          : `fetch returned status ${response.status} for ${response.url || url}`,
     };
   } catch (error) {
     return {
@@ -308,7 +348,7 @@ async function runFetchCheck(
 
 async function runXhrCheck(
   url: string,
-  responseType: ModelAssetResponseType,
+  asset: ModelAssetDefinition,
 ): Promise<{
   success: boolean;
   status: string;
@@ -317,13 +357,14 @@ async function runXhrCheck(
   errorMessage: string;
 }> {
   try {
-    const result = await loadLocalAssetWithXHR(url, responseType);
+    const result = await loadLocalAssetWithXHR(url, asset.responseType);
+    const sizeCheck = validateAssetByteLength(asset, result.byteLength);
     return {
-      success: true,
+      success: sizeCheck.valid,
       status: String(result.status || 0),
       byteLength: result.byteLength,
-      errorName: "",
-      errorMessage: "",
+      errorName: sizeCheck.valid ? "" : sizeCheck.errorName,
+      errorMessage: sizeCheck.valid ? "" : sizeCheck.errorMessage,
     };
   } catch (error) {
     return {
@@ -342,8 +383,8 @@ async function checkModelAsset(
 ): Promise<ModelAssetCheck> {
   const url = getAssetUrl(baseUrl, asset.fileName);
   const [fetchResult, xhrResult] = await Promise.all([
-    runFetchCheck(url, asset.responseType),
-    runXhrCheck(url, asset.responseType),
+    runFetchCheck(url, asset),
+    runXhrCheck(url, asset),
   ]);
 
   const check: ModelAssetCheck = {
@@ -385,6 +426,27 @@ function toResponseFromXhr(
   });
 }
 
+function toResponseFromFetch(
+  url: string,
+  responseType: ModelAssetResponseType,
+  status: number,
+  statusText: string,
+  body: string | ArrayBuffer,
+  contentType: string | null,
+): Response {
+  return new Response(body, {
+    status: status || 200,
+    statusText: statusText || "OK",
+    headers: {
+      "Content-Type": contentType || (responseType === "text"
+        ? "application/json"
+        : "application/octet-stream"),
+      "X-Emotion-Runner-Source": "fetch",
+      "X-Emotion-Runner-Url": url,
+    },
+  });
+}
+
 function ensureModelFetchFallback(faceapi: FaceApiModule) {
   if (!wrappedModelFetch) {
     const baseFetch = getRawFetch();
@@ -394,27 +456,73 @@ function ensureModelFetchFallback(faceapi: FaceApiModule) {
     wrappedModelFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const requestUrl = getRequestUrl(input);
       const absoluteUrl = resolveAbsoluteUrl(requestUrl);
+      const asset = findAssetDefinition(absoluteUrl);
 
       if (!isModelAssetRequest(requestUrl)) {
         return baseFetch(input, init);
       }
 
+      if (!asset) {
+        return baseFetch(input, init);
+      }
+
+      if (window.location.protocol === "capacitor:") {
+        logModelInfo("capacitor-model-asset-using-xhr", {
+          url: absoluteUrl,
+          assetName: asset.fileName,
+        });
+        const xhrResult = await loadLocalAssetWithXHR(absoluteUrl, asset.responseType);
+        const sizeCheck = validateAssetByteLength(asset, xhrResult.byteLength);
+        if (!sizeCheck.valid) {
+          logModelError("xhr-size-mismatch", {
+            url: absoluteUrl,
+            assetName: asset.fileName,
+            expectedByteLength: asset.expectedByteLength,
+            actualByteLength: xhrResult.byteLength,
+          });
+          throw new Error(sizeCheck.errorMessage);
+        }
+        return toResponseFromXhr(absoluteUrl, asset.responseType, xhrResult);
+      }
+
       try {
         const response = await baseFetch(input, init);
-        if (response.ok || response.status === 0) {
-          return response;
+        const body = asset.responseType === "text"
+          ? await response.text()
+          : await response.arrayBuffer();
+        const byteLength = asset.responseType === "text"
+          ? getTextByteLength(body as string)
+          : (body as ArrayBuffer).byteLength;
+        const sizeCheck = validateAssetByteLength(asset, byteLength);
+        if ((response.ok || response.status === 0) && sizeCheck.valid) {
+          return toResponseFromFetch(
+            absoluteUrl,
+            asset.responseType,
+            response.status,
+            response.statusText,
+            body,
+            response.headers.get("Content-Type"),
+          );
         }
 
-        logModelInfo("fetch-non-ok-using-xhr", {
+        logModelInfo("fetch-retry-using-xhr", {
           url: absoluteUrl,
           status: response.status,
           statusText: response.statusText,
+          expectedByteLength: asset.expectedByteLength,
+          actualByteLength: byteLength,
+          fetchErrorName: sizeCheck.errorName,
+          fetchErrorMessage: sizeCheck.errorMessage,
         });
         const xhrResult = await loadLocalAssetWithXHR(
           absoluteUrl,
-          getResponseTypeForUrl(absoluteUrl),
+          asset.responseType,
         );
-        return toResponseFromXhr(absoluteUrl, getResponseTypeForUrl(absoluteUrl), xhrResult);
+        const xhrSizeCheck = validateAssetByteLength(asset, xhrResult.byteLength);
+        if (!xhrSizeCheck.valid) {
+          throw new Error(xhrSizeCheck.errorMessage);
+        }
+        return toResponseFromXhr(absoluteUrl, asset.responseType, xhrResult);
       } catch (fetchError) {
         logModelInfo("fetch-failed-using-xhr", {
           url: absoluteUrl,
@@ -425,9 +533,13 @@ function ensureModelFetchFallback(faceapi: FaceApiModule) {
         try {
           const xhrResult = await loadLocalAssetWithXHR(
             absoluteUrl,
-            getResponseTypeForUrl(absoluteUrl),
+            asset.responseType,
           );
-          return toResponseFromXhr(absoluteUrl, getResponseTypeForUrl(absoluteUrl), xhrResult);
+          const xhrSizeCheck = validateAssetByteLength(asset, xhrResult.byteLength);
+          if (!xhrSizeCheck.valid) {
+            throw new Error(xhrSizeCheck.errorMessage);
+          }
+          return toResponseFromXhr(absoluteUrl, asset.responseType, xhrResult);
         } catch (xhrError) {
           logModelError("fetch-and-xhr-failed", {
             url: absoluteUrl,
@@ -524,6 +636,26 @@ export async function setupFaceModels(
       allAssetsReadable: candidateDiagnostics.allAssetsReadable,
       usedXhrFallback: candidateDiagnostics.usedXhrFallback,
     });
+
+    if (
+      candidateDiagnostics.assetChecks.some(
+        (check) => check.fetchErrorName === "UnexpectedAssetSize" && check.xhrSuccess,
+      )
+    ) {
+      diagnostics.notes.push(
+        "Capacitor の fetch で model shard の byte 数が崩れたため、XHR に切り替えて読み込みます。",
+      );
+    }
+
+    if (
+      candidateDiagnostics.assetChecks.some(
+        (check) => check.xhrErrorName === "UnexpectedAssetSize",
+      )
+    ) {
+      diagnostics.notes.push(
+        "表情認識モデルのファイルが壊れている可能性があります。",
+      );
+    }
 
     if (!candidateDiagnostics.allAssetsReadable) {
       candidateDiagnostics.faceApiErrorName = "AssetCheckFailed";

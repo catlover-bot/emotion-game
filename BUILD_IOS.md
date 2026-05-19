@@ -9,6 +9,7 @@ npm install
 ## 2. Web アセットをビルドする
 
 ```bash
+npm run validate:models
 npm run build
 ```
 
@@ -48,24 +49,27 @@ npx cap open ios
 4. `Distribute App` → `App Store Connect` → `Upload` を選びます。
 5. 自動署名を使う場合は、そのまま推奨設定で進めます。
 6. 新しい TestFlight アップロードごとに `Build` 番号を 1 つ増やしてから Archive します。
-7. `Build` 番号を変更したあとは、`npm run build` と `npx cap sync ios` を実行してから Archive します。
+7. `Build` 番号を変更したあとは、`npm run validate:models`、`npm run build`、`npx cap sync ios` を実行してから Archive します。
 
 ## 8. TestFlight 用メモ
 
 - TestFlight の説明文には、表情操作とタップ操作の両対応であることを書くと分かりやすいです。
 - 審査メモには、カメラ用途が「表情でキャラクターを操作するため」であり、映像は端末内処理で保存・送信しないことを明記します。
 - App Store Connect の Privacy Nutrition Label は、実装に合わせて慎重に入力します。
-- Build 8 には `hard inline boot stamp` を入れています。`Build 8 / HTML表示確認中…` が見えない場合は、想定したビルドが入っていないか、ネイティブ WebView が `index.html` を読み込めていない可能性があります。
+- Build 9 には `hard inline boot stamp` を入れています。`Build 9 / HTML表示確認中…` が見えない場合は、想定したビルドが入っていないか、ネイティブ WebView が `index.html` を読み込めていない可能性があります。
 - スタンプは見えるのに先へ進まない場合は、表示されている起動段階を確認します。
-- Build 8 では native の可視オーバーレイは外し、`EMOTION_RUNNER_NATIVE_DIAG` と `EMOTION_RUNNER_NATIVE_STAGE` のログだけを残しています。HTML の `Build 8` は見えるのに UI が空の場合は、WebView 内でアプリ UI の重なり順か高さ計算が崩れている可能性があります。
+- Build 9 では native の可視オーバーレイは外し、`EMOTION_RUNNER_NATIVE_DIAG` と `EMOTION_RUNNER_NATIVE_STAGE` のログだけを残しています。HTML の `Build 9` は見えるのに UI が空の場合は、WebView 内でアプリ UI の重なり順か高さ計算が崩れている可能性があります。
 - HTML も通常 UI もどちらも見えない場合は、古い build を見ているか、native launch より前で止まっている可能性があります。
 - カメラの再確認時は、Xcode Console で `EMOTION_RUNNER_CAMERA` と `EMOTION_RUNNER_MODEL` を検索すると、試行した制約・`getUserMedia` の失敗理由・video サイズ・model 読み込み結果を追えます。
+- カメラが起動しても表情認識が動かない場合は、まず `npm run validate:models` を実行してください。Build 8 の `tensor should have 576 values but has 116` は、runtime で shard の byte 数が壊れている時に出やすい症状です。
+- shard が `3652 bytes` 前後しか読めていない場合は明らかに異常です。正しい `tiny_face_detector_model-shard1` は `193321 bytes`、`face_expression_model-shard1` は `329468 bytes` です。
 - Xcode の Devices and Simulators Console では `EMOTION_RUNNER_NATIVE_DIAG` と `EMOTION_RUNNER_NATIVE_STAGE` で検索します。
 - TestFlight へ再アップロードするたびに `CURRENT_PROJECT_VERSION` を増やします。
 
 ## 9. 検証コマンド
 
 ```bash
+npm run validate:models
 npm run build
 npx cap sync ios
 plutil -p ios/App/App/Info.plist | grep -A8 -E "UIRequiresFullScreen|UISupportedInterfaceOrientations"
@@ -78,14 +82,15 @@ Archive 後に、実際に `.xcarchive` の中へ最新の web 資産が入っ�
 ```bash
 ARCHIVE_PATH="$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -n 1)"
 find "$ARCHIVE_PATH/Products/Applications/App.app/public" -maxdepth 2 -type f | sort
-grep -R "Build 8" "$ARCHIVE_PATH/Products/Applications/App.app/public/index.html"
+grep -R "Build 9" "$ARCHIVE_PATH/Products/Applications/App.app/public/index.html"
 ```
 
-`index.html` に `Build 8` が含まれ、`public/assets` と `public/models` が見えていれば、Archive 自体には最新資産が入っています。
+`index.html` に `Build 9` が含まれ、`public/assets` と `public/models` が見えていれば、Archive 自体には最新資産が入っています。
 
 ## 11. トラブルシュート
 
 - `npm run build` が失敗したら、TypeScript エラーを先に解消します。
+- `npm run validate:models` が失敗したら、model ファイルの破損や取り違えを先に直します。
 - `npx cap sync ios` が失敗したら、`npm install` 済みか確認します。
 - CocoaPods 関連で失敗したら、Xcode / Command Line Tools / CocoaPods の状態を確認します。
 - 権限文言を更新したあとは、再度 `npx cap sync ios` を実行して Xcode 側に反映します。
