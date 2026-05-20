@@ -12,7 +12,7 @@ declare global {
 }
 
 const APP_NAME = "表情ランナー";
-const DIAGNOSTIC_BUILD = window.__EMOTION_RUNNER_BUILD__ ?? "11";
+const DIAGNOSTIC_BUILD = window.__EMOTION_RUNNER_BUILD__ ?? "12";
 
 const STAMP_BASE_STYLE = `
   position: fixed;
@@ -110,7 +110,7 @@ function renderHardBootStamp(detail: string, note?: string) {
   stamp.innerHTML = `
     <div style="${STAMP_WRAPPER_STYLE}">
       <div id="hardBootStampText" style="${STAMP_TEXT_STYLE}">${escapeHtml(
-        `${APP_NAME}\nTestFlight診断ビルド\nBuild ${DIAGNOSTIC_BUILD} / ${detail}`,
+        `${APP_NAME}\n${detail}`,
       ).replaceAll("\n", "<br>")}</div>
       ${
         note
@@ -161,7 +161,7 @@ function showStartupFailure(error: unknown) {
 
   const stamp = getOrCreateHardBootStamp();
   const diagnosticText = [
-    `${APP_NAME} TestFlight診断ビルド Build ${DIAGNOSTIC_BUILD}`,
+    `${APP_NAME} Build ${DIAGNOSTIC_BUILD}`,
     `current stage: app-error`,
     `previous stage: ${previousStage}`,
     `startup detail: ${startupDetail}`,
@@ -176,7 +176,7 @@ function showStartupFailure(error: unknown) {
   stamp.innerHTML = `
     <div style="${STAMP_WRAPPER_STYLE}">
       <div style="${STAMP_TEXT_STYLE}">${escapeHtml(
-        `${APP_NAME}\nTestFlight診断ビルド\nBuild ${DIAGNOSTIC_BUILD}\nアプリの起動に失敗しました`,
+        `${APP_NAME}\nアプリの起動に失敗しました\nBuild ${DIAGNOSTIC_BUILD}`,
       ).replaceAll("\n", "<br>")}</div>
       <div style="${STAMP_PANEL_STYLE}">
         <strong>現在の段階</strong>
@@ -223,7 +223,7 @@ function setStage(stage: string, detail: string) {
   window.__EMOTION_RUNNER_STAGE__ = stage;
 
   if (!appReady) {
-    renderHardBootStamp(detail, `起動段階: ${stage}`);
+    renderHardBootStamp(detail);
   }
 }
 
@@ -253,7 +253,7 @@ function markAppShellVisible() {
   window.__EMOTION_RUNNER_APP_READY__ = true;
 
   const stamp = getOrCreateHardBootStamp();
-  renderHardBootStamp("アプリ画面を表示しました。", "起動段階: app-shell-visible");
+  renderHardBootStamp("アプリ画面を表示しました。");
   window.setTimeout(() => {
     stamp.remove();
   }, 900);

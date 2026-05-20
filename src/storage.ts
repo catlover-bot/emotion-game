@@ -1,6 +1,7 @@
 const ONBOARDING_KEY = "emotion-game.onboarding-complete";
 const TUTORIAL_KEY = "emotion-game.tutorial-complete";
 export const DAILY_BEST_PREFIX = "emotion_game_daily_best_";
+export const DAILY_MISSION_PREFIX = "emotion_game_daily_mission_reward_";
 
 function loadFlag(key: string): boolean {
   try {
@@ -46,7 +47,7 @@ export function clearAppStorage(): void {
     const keysToRemove: string[] = [];
     for (let i = 0; i < window.localStorage.length; i += 1) {
       const key = window.localStorage.key(i);
-      if (key?.startsWith(DAILY_BEST_PREFIX)) {
+      if (key?.startsWith(DAILY_BEST_PREFIX) || key?.startsWith(DAILY_MISSION_PREFIX)) {
         keysToRemove.push(key);
       }
     }

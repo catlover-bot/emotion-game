@@ -35,7 +35,7 @@ import {
 } from "./cosmetics";
 import { shareResultImage } from "./share";
 import { dailySeed } from "./dailySeed";
-import { DAILY_BEST_PREFIX } from "./storage";
+import { DAILY_BEST_PREFIX, DAILY_MISSION_PREFIX } from "./storage";
 
 export type Scene = "title" | "play" | "customize" | "gacha";
 export type GameAction = "jump" | "attack" | "boost";
@@ -43,11 +43,19 @@ export type GameSnapshot = {
   scene: Scene;
   gameOver: boolean;
   score: number;
+  combo: number;
   maxCombo: number;
   dailyBest: number;
   isNewDailyRecord: boolean;
   rank: string;
   coins: number;
+  coinsEarned: number;
+  missionText: string;
+  missionProgressText: string;
+  missionCompleted: boolean;
+  missionRewardCoins: number;
+  missionRewardClaimed: boolean;
+  missionRewardEarned: boolean;
   charName: string;
   charRarity: Rarity;
   bgName: string;
@@ -237,21 +245,63 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   let trend: TrendChallenge | null = null;
   let nextTrendTick = 600; // 最初のトレンド開始候補（約10秒後）
 
-  // ミッション
-  const missions: Mission[] = [
+  type DailyMission = Mission & {
+    id: string;
+    resultText: string;
+    rewardCoins: number;
+    progressText: (state: PublicState) => string;
+  };
+
+  const dailyMissions: DailyMission[] = [
     {
-      text: "ミッション①：笑顔で 10 コンボ達成！",
+      id: "score-1000",
+      text: "今日のミッション: スコア1000を目指そう",
+      resultText: "スコア1000達成！",
+      rewardCoins: 20,
+      condition: (s) => s.score >= 1000,
+      progressText: (s) => `${Math.min(s.score, 1000)} / 1000`,
+    },
+    {
+      id: "combo-10",
+      text: "今日のミッション: 10コンボ達成",
+      resultText: "10コンボ達成！",
+      rewardCoins: 20,
       condition: (s) => s.maxCombo >= 10,
+      progressText: (s) => `${Math.min(s.maxCombo, 10)} / 10 コンボ`,
     },
     {
-      text: "ミッション②：FEVER を 2 回発動！",
-      condition: (s) => s.feverCount >= 2,
-    },
-    {
-      text: "ミッション③：スコア 5,000 突破！",
-      condition: (s) => s.score >= 5000,
+      id: "fever-1",
+      text: "今日のミッション: フィーバーを1回発動",
+      resultText: "フィーバー発動！",
+      rewardCoins: 25,
+      condition: (s) => s.feverCount >= 1,
+      progressText: (s) => `${Math.min(s.feverCount, 1)} / 1 回`,
     },
   ];
+  const dailyMission = dailyMissions[daySeed % dailyMissions.length] ?? dailyMissions[0];
+  let missionRewardEarnedThisRun = false;
+
+  function dailyMissionStorageKey(): string {
+    return `${DAILY_MISSION_PREFIX}${todayKey()}_${dailyMission.id}`;
+  }
+
+  function loadDailyMissionRewardClaimed(): boolean {
+    try {
+      return localStorage.getItem(dailyMissionStorageKey()) === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  function saveDailyMissionRewardClaimed() {
+    try {
+      localStorage.setItem(dailyMissionStorageKey(), "true");
+    } catch {
+      // ignore
+    }
+  }
+
+  let dailyMissionRewardClaimed = loadDailyMissionRewardClaimed();
 
   // 表情ホールドのしきい値（フレーム数）
   const HOLD_SHORT = 25; // 約0.4秒
@@ -272,6 +322,14 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   let manualBoostTicks = 0;
 
   // ===== ユーティリティ =====
+
+  function getPublicState(): PublicState {
+    return {
+      score,
+      maxCombo,
+      feverCount,
+    };
+  }
 
   function addScore(base: number) {
     const bonus = 1 + combo * 0.05;
@@ -369,6 +427,24 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     }
   }
 
+  function awardDailyMissionOnGameOver() {
+    if (dailyMissionRewardClaimed) return;
+    if (!dailyMission.condition(getPublicState())) return;
+
+    dailyMissionRewardClaimed = true;
+    missionRewardEarnedThisRun = true;
+    saveDailyMissionRewardClaimed();
+    lastCoinsEarned += dailyMission.rewardCoins;
+    lastCoinsEarnedTick = tick;
+
+    updateCosmetics({
+      ...cosmetics,
+      coins: cosmetics.coins + dailyMission.rewardCoins,
+    });
+
+    spawnLikeShower(width() / 2, groundY() - 120);
+  }
+
   function damage() {
     if (scene !== "play") return;
     if (gameOver) return;
@@ -408,6 +484,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
       // Daily best / bonus
       updateDailyBestOnGameOver();
+      awardDailyMissionOnGameOver();
       markSnapshotDirty();
     }
   }
@@ -489,15 +566,25 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   function getSnapshot(): GameSnapshot {
     const charSkin = findCharacterSkin(cosmetics.equippedCharacterSkinId);
     const bgSkin = findBackgroundSkin(cosmetics.equippedBackgroundSkinId);
+    const publicState = getPublicState();
+    const missionCompleted = dailyMission.condition(publicState);
     return {
       scene,
       gameOver,
       score,
+      combo,
       maxCombo,
       dailyBest,
       isNewDailyRecord,
       rank: getRank(score),
       coins: cosmetics.coins,
+      coinsEarned: lastCoinsEarned,
+      missionText: dailyMission.text,
+      missionProgressText: dailyMission.progressText(publicState),
+      missionCompleted,
+      missionRewardCoins: dailyMission.rewardCoins,
+      missionRewardClaimed: dailyMissionRewardClaimed || missionRewardEarnedThisRun,
+      missionRewardEarned: missionRewardEarnedThisRun,
       charName: charSkin.name,
       charRarity: charSkin.rarity,
       bgName: bgSkin.name,
@@ -518,16 +605,13 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   }
 
   function getCurrentMissionText(): string {
-    const publicState: PublicState = {
-      score,
-      maxCombo,
-      feverCount,
-    };
-    const firstIncomplete = missions.find((m) => !m.condition(publicState));
-    if (!firstIncomplete) {
-      return "全ミッション達成！あなたの顔面、完全にコンテンツ。";
+    const publicState = getPublicState();
+    if (dailyMission.condition(publicState)) {
+      return dailyMissionRewardClaimed
+        ? `${dailyMission.resultText} 報酬受け取り済み`
+        : `${dailyMission.resultText} クリアで +${dailyMission.rewardCoins} コイン`;
     }
-    return firstIncomplete.text;
+    return `${dailyMission.text} (${dailyMission.progressText(publicState)})`;
   }
 
   // トレンドチャレンジ
@@ -657,6 +741,9 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     continueSmileTicks = 0;
     hasUsedClutchSave = false;
     manualBoostTicks = 0;
+    lastCoinsEarned = 0;
+    lastCoinsEarnedTick = 0;
+    missionRewardEarnedThisRun = false;
 
     // トレンドチャレンジもリセット
     trend = null;
@@ -1006,7 +1093,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   function makeShareText() {
     const rank = getRank(score);
     const dailyLine = isNewDailyRecord ? `今日の新記録！ ${dailyBest}` : `今日のベスト: ${dailyBest}`;
-    return `${appName}\nスコア: ${score}\nランク: ${rank}\n最大コンボ: ×${maxCombo}\n${dailyLine}`;
+    return `${appName}で ${score} 点！\n顔で走るアクションゲームに挑戦中！\nランク: ${rank}\n最大コンボ: ×${maxCombo}\n${dailyLine}`;
   }
 
   async function shareResult() {
@@ -1144,6 +1231,12 @@ export function createGame(canvas: HTMLCanvasElement): Game {
         showContinueHint,
         dailyBest,
         isNewDailyRecord,
+        coinsEarned: lastCoinsEarned,
+        missionText: dailyMission.text,
+        missionProgressText: dailyMission.progressText(getPublicState()),
+        missionCompleted: dailyMission.condition(getPublicState()),
+        missionRewardCoins: dailyMission.rewardCoins,
+        missionRewardEarned: missionRewardEarnedThisRun,
       });
     } else if (scene === "title") {
       drawBackground(drawCtx, {

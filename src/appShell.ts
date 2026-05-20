@@ -62,6 +62,7 @@ type AppShellState = {
   practiceStep: number;
   confirmResetData: boolean;
   settingsNotice: string;
+  settingsDiagnosticsExpanded: boolean;
 };
 
 const APP_NAME = "表情ランナー";
@@ -157,6 +158,42 @@ function getDiagnosticStatusLabel(value: boolean): string {
   return value ? "成功" : "失敗";
 }
 
+function getControlModeCopy(cameraState: CameraUiState): {
+  label: string;
+  detail: string;
+  className: string;
+} {
+  if (cameraState === "ready") {
+    return {
+      label: "表情操作",
+      detail: "笑顔・怒った顔・驚いた顔で操作できます。タップも使えます。",
+      className: "is-good",
+    };
+  }
+
+  if (cameraState === "requesting") {
+    return {
+      label: "準備中",
+      detail: "カメラを確認しています。待っている間もタップ操作で遊べます。",
+      className: "is-info",
+    };
+  }
+
+  if (cameraState === "expressionUnavailable") {
+    return {
+      label: "タップ操作",
+      detail: "カメラは起動しています。表情操作はあとで再確認できます。",
+      className: "is-warning",
+    };
+  }
+
+  return {
+    label: "タップ操作",
+    detail: "まずはタップで遊べます。カメラを使うと表情操作も楽しめます。",
+    className: "is-warning",
+  };
+}
+
 export type AppShell = ReturnType<typeof createAppShell>;
 
 export function createAppShell(options: AppShellOptions) {
@@ -176,6 +213,7 @@ export function createAppShell(options: AppShellOptions) {
     practiceStep: 0,
     confirmResetData: false,
     settingsNotice: "",
+    settingsDiagnosticsExpanded: false,
   };
 
   function renderAndNotify() {
@@ -231,8 +269,8 @@ export function createAppShell(options: AppShellOptions) {
     if (state.cameraState === "expressionUnavailable") {
       return `
         <div class="floating-banner is-warning">
-          <strong>表情認識が使えないため、タップ操作で遊べます</strong>
-          <span>カメラは起動していますが、表情認識の実行だけを停止しました。</span>
+          <strong>まずはタップ操作で遊べます</strong>
+          <span>表情操作はあとで有効にできます。カメラを使うと笑顔・怒った顔・驚いた顔で操作できます。</span>
           <div class="button-row compact-row">
             <button type="button" data-action="enable-camera" class="ghost-button">もう一度確認</button>
           </div>
@@ -243,8 +281,8 @@ export function createAppShell(options: AppShellOptions) {
 
     return `
       <div class="floating-banner is-warning">
-        <strong>いまはタップ操作で遊べます</strong>
-        <span>カメラを許可すると、表情操作も使えるようになります。</span>
+        <strong>タップだけですぐ遊べます</strong>
+        <span>表情操作はあとでオンにできます。</span>
         <button type="button" data-action="open-camera-overlay" class="ghost-button">カメラを許可する</button>
       </div>
     `;
@@ -431,15 +469,16 @@ export function createAppShell(options: AppShellOptions) {
   }
 
   function getTitleMenuHtml(game: GameSnapshot) {
+    const controlMode = getControlModeCopy(state.cameraState);
     return `
       <section class="menu-panel title-panel">
         <div class="hero-copy">
-          <span class="eyebrow">かおであそぶアクション</span>
+          <span class="eyebrow">顔で走るアクション</span>
           <h1>${APP_NAME}</h1>
-          <p>表情でもタップでも遊べる、顔で走るカジュアルアクションです。</p>
+          <p>笑顔でジャンプ、怒った顔で攻撃、驚いた顔でブースト。タップだけでもすぐ遊べます。</p>
         </div>
 
-        <div class="hero-stats">
+        <div class="hero-stats title-stats">
           <div class="stat-pill">
             <span>今日のベスト</span>
             <strong>${game.dailyBest}</strong>
@@ -448,14 +487,26 @@ export function createAppShell(options: AppShellOptions) {
             <span>コイン</span>
             <strong>${game.coins}</strong>
           </div>
+          <div class="stat-pill mode-pill ${controlMode.className}">
+            <span>現在のモード</span>
+            <strong>${controlMode.label}</strong>
+            <small>${controlMode.detail}</small>
+          </div>
+          <div class="stat-pill mission-pill">
+            <span>今日のミッション</span>
+            <strong>${escapeHtml(game.missionText.replace("今日のミッション: ", ""))}</strong>
+            <small>${escapeHtml(game.missionProgressText)}</small>
+          </div>
         </div>
 
         <div class="menu-grid title-menu-grid">
           <button type="button" data-action="start-game" class="primary-button">ゲーム開始</button>
-          <button type="button" data-action="open-how-to" class="secondary-button">あそび方</button>
+          <button type="button" data-action="open-camera-overlay" class="secondary-button">カメラで表情操作</button>
+          <button type="button" data-action="continue-without-camera" class="secondary-button">タップだけで遊ぶ</button>
+          <button type="button" data-action="open-how-to" class="ghost-button">あそび方</button>
           <button type="button" data-action="open-customize" class="secondary-button">着せ替え</button>
           <button type="button" data-action="open-gacha" class="secondary-button">ガチャ</button>
-          <button type="button" data-action="open-privacy" class="ghost-button">プライバシー</button>
+          <button type="button" data-action="open-settings" class="ghost-button">設定</button>
         </div>
 
         <div class="face-hints">
@@ -463,10 +514,6 @@ export function createAppShell(options: AppShellOptions) {
           <span>怒った顔で着せ替え</span>
           <span>驚いた顔でガチャ</span>
           <span>タップだけでも遊べます</span>
-        </div>
-
-        <div class="title-footer-actions">
-          <button type="button" data-action="open-settings" class="text-button">設定とデータ</button>
         </div>
       </section>
     `;
@@ -571,10 +618,18 @@ export function createAppShell(options: AppShellOptions) {
   function getGameOverActionsHtml(game: GameSnapshot) {
     if (game.scene !== "play" || !game.gameOver) return "";
 
+    const missionLabel = game.missionCompleted
+      ? game.missionRewardEarned
+        ? `達成！ +${game.missionRewardCoins} コイン`
+        : game.missionRewardClaimed
+          ? "達成済み"
+          : "達成！"
+      : game.missionProgressText;
+
     return `
         <div class="result-actions">
-        <button type="button" data-action="share-result" class="secondary-button">共有</button>
         <button type="button" data-action="retry-game" class="primary-button">もう一度</button>
+        <button type="button" data-action="share-result" class="secondary-button">共有</button>
         <button type="button" data-action="back-to-title" class="ghost-button">タイトルへ</button>
       </div>
       <div class="result-summary result-grid">
@@ -594,6 +649,14 @@ export function createAppShell(options: AppShellOptions) {
           <span>${game.isNewDailyRecord ? "今日の新記録！" : "今日のベスト"}</span>
           <strong>${game.dailyBest}</strong>
         </div>
+        <div>
+          <span>獲得コイン</span>
+          <strong>+${game.coinsEarned}</strong>
+        </div>
+        <div>
+          <span>今日のミッション</span>
+          <strong>${escapeHtml(missionLabel)}</strong>
+        </div>
       </div>
     `;
   }
@@ -602,24 +665,24 @@ export function createAppShell(options: AppShellOptions) {
     return `
       <section class="modal-screen">
         <div class="modal-card onboarding-card">
-          <span class="eyebrow">はじめてのあそび方</span>
+          <span class="eyebrow">ようこそ</span>
           <h2>${APP_NAME}</h2>
-          <p>表情でキャラクターを動かす、かんたんアクションゲームです。</p>
+          <p>顔で走る、タップでも遊べるアクションゲームです。</p>
 
           <div class="intro-grid">
             <article class="detail-card">
-              <strong>😄 笑顔でジャンプ</strong>
-              <small>🔥 怒った顔で攻撃 / 😲 驚いた顔でブースト</small>
+              <strong>笑顔でジャンプ</strong>
+              <small>怒った顔で攻撃、驚いた顔でブーストします。</small>
             </article>
             <article class="detail-card">
-              <strong>端末内だけで処理</strong>
+              <strong>プライバシー安心</strong>
               <small>カメラ映像は保存・送信されません。</small>
             </article>
           </div>
 
           <div class="button-row">
-            <button type="button" data-action="open-camera-overlay" class="primary-button">つぎへ</button>
-            <button type="button" data-action="close-overlay" class="ghost-button">あとで見る</button>
+            <button type="button" data-action="close-overlay" class="primary-button">はじめる</button>
+            <button type="button" data-action="continue-without-camera" class="ghost-button">タップだけで遊ぶ</button>
           </div>
         </div>
       </section>
@@ -634,7 +697,7 @@ export function createAppShell(options: AppShellOptions) {
       <section class="modal-screen">
         <div class="modal-card">
           <span class="eyebrow">カメラ</span>
-          <h2>カメラを許可すると、表情で遊べます</h2>
+          <h2>表情操作をオンにしますか？</h2>
           <p>
             前面カメラで表情だけを読み取り、キャラクターを操作します。
             カメラ映像は端末内で処理され、保存や送信は行いません。
@@ -684,8 +747,8 @@ export function createAppShell(options: AppShellOptions) {
   }
 
   function getCameraErrorHtml() {
-    const message = state.cameraMessage || "カメラの起動に失敗しました。";
-    const title = state.cameraTitle || "カメラを起動できませんでした";
+    const message = state.cameraMessage || "表情操作はあとで有効にできます。まずはタップ操作で遊べます。";
+    const title = state.cameraTitle || "表情操作はあとで有効にできます";
     const retryLabel = state.cameraDiagnostics?.phase === "models"
       ? "もう一度モデルを確認"
       : "もう一度カメラを確認";
@@ -696,7 +759,7 @@ export function createAppShell(options: AppShellOptions) {
           <span class="eyebrow">カメラ / 表情認識</span>
           <h2>${escapeHtml(title)}</h2>
           <p>${escapeHtml(message)}</p>
-          <p>タップ操作でそのまま遊べます。必要なときだけ後からカメラを再確認してください。</p>
+          <p>ゲームは止まりません。まずはタップ操作で走って、必要なときだけ後からカメラを再確認できます。</p>
           <div class="button-row">
             <button type="button" data-action="enable-camera" class="primary-button">${retryLabel}</button>
             <button type="button" data-action="continue-without-camera" class="ghost-button">タップ操作で遊ぶ</button>
@@ -721,19 +784,23 @@ export function createAppShell(options: AppShellOptions) {
 
           <div class="intro-grid">
             <article class="detail-card">
-              <strong>😄 笑顔</strong>
+              <strong>笑顔</strong>
               <small>ジャンプ / スタート / コンティニュー</small>
             </article>
             <article class="detail-card">
-              <strong>🔥 怒った顔</strong>
+              <strong>怒った顔</strong>
               <small>攻撃</small>
             </article>
             <article class="detail-card">
-              <strong>😲 驚いた顔</strong>
+              <strong>驚いた顔</strong>
               <small>ブースト / ガチャ操作</small>
             </article>
             <article class="detail-card">
-              <strong>😢 悲しい顔</strong>
+              <strong>タップ操作</strong>
+              <small>ジャンプ / 攻撃 / ブーストを同じように操作できます</small>
+            </article>
+            <article class="detail-card">
+              <strong>悲しい顔</strong>
               <small>戻る / ゲージ調整</small>
             </article>
           </div>
@@ -831,12 +898,11 @@ export function createAppShell(options: AppShellOptions) {
             <button type="button" data-action="close-overlay" class="ghost-button">閉じる</button>
           </div>
           <ul class="tip-list">
-            <li>カメラは表情を検出するためだけに使用します。</li>
-            <li>カメラ映像は端末内で処理されます。</li>
-            <li>カメラ画像や表情データは保存・送信・共有されません。</li>
-            <li>スコア、コイン、スキンなどのゲーム進行データは端末内に保存されます。</li>
-            <li>アカウント登録は不要です。</li>
+            <li>アカウント登録はありません。</li>
             <li>広告、解析、トラッキングは使用していません。</li>
+            <li>カメラは表情を検出するためだけに使用します。</li>
+            <li>カメラ映像は端末内で処理され、保存・送信・共有されません。</li>
+            <li>スコア、コイン、スキン、設定などのゲームデータは端末内に保存されます。</li>
           </ul>
         </div>
       </section>
@@ -859,6 +925,19 @@ export function createAppShell(options: AppShellOptions) {
     const noticeHtml = state.settingsNotice
       ? `<p class="status-text">${escapeHtml(state.settingsNotice)}</p>`
       : "";
+    const diagnosticsHtml = state.settingsDiagnosticsExpanded
+      ? state.cameraDiagnostics
+        ? getCameraDiagnosticsHtml()
+        : `
+            <div class="diagnostic-panel settings-diagnostics">
+              <div class="diagnostic-card">
+                <strong>診断情報</strong>
+                <span>まだカメラや表情認識の診断情報はありません。</span>
+                <span>カメラを再確認すると、必要な場合だけ詳細が表示されます。</span>
+              </div>
+            </div>
+          `
+      : "";
 
     return `
       <section class="modal-screen">
@@ -872,13 +951,16 @@ export function createAppShell(options: AppShellOptions) {
           </div>
 
           <div class="menu-grid single utility-grid">
+            <button type="button" data-action="open-camera-overlay" class="secondary-button">カメラを再確認</button>
             <button type="button" data-action="open-how-to" class="secondary-button">あそび方をもう一度見る</button>
             <button type="button" data-action="reset-tutorial" class="secondary-button">チュートリアルをリセット</button>
-            <button type="button" data-action="request-reset-data" class="ghost-button">データをリセット</button>
             <button type="button" data-action="open-privacy" class="ghost-button">プライバシーを見る</button>
+            <button type="button" data-action="toggle-settings-diagnostics" class="ghost-button">診断情報</button>
+            <button type="button" data-action="request-reset-data" class="ghost-button danger-button">データをリセット</button>
           </div>
 
           ${noticeHtml}
+          ${diagnosticsHtml}
           ${confirmHtml}
         </div>
       </section>
@@ -957,6 +1039,7 @@ export function createAppShell(options: AppShellOptions) {
           case "open-settings":
             state.confirmResetData = false;
             state.settingsNotice = "";
+            state.settingsDiagnosticsExpanded = false;
             setOverlay("settings");
             break;
           case "back-to-title":
@@ -1018,6 +1101,11 @@ export function createAppShell(options: AppShellOptions) {
             break;
           case "toggle-camera-diagnostics":
             state.cameraDiagnosticsExpanded = !state.cameraDiagnosticsExpanded;
+            render();
+            break;
+          case "toggle-settings-diagnostics":
+            state.settingsDiagnosticsExpanded = !state.settingsDiagnosticsExpanded;
+            state.cameraDiagnosticsExpanded = state.settingsDiagnosticsExpanded;
             render();
             break;
           case "touch-jump":

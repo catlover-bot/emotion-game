@@ -56,13 +56,12 @@ npx cap open ios
 - TestFlight の説明文には、表情操作とタップ操作の両対応であることを書くと分かりやすいです。
 - 審査メモには、カメラ用途が「表情でキャラクターを操作するため」であり、映像は端末内処理で保存・送信しないことを明記します。
 - App Store Connect の Privacy Nutrition Label は、実装に合わせて慎重に入力します。
-- Build 10 には `hard inline boot stamp` を入れています。`Build 10 / HTML表示確認中…` が見えない場合は、想定したビルドが入っていないか、ネイティブ WebView が `index.html` を読み込めていない可能性があります。
-- スタンプは見えるのに先へ進まない場合は、表示されている起動段階を確認します。
-- Build 10 では native の可視オーバーレイは外し、`EMOTION_RUNNER_NATIVE_DIAG` と `EMOTION_RUNNER_NATIVE_STAGE` のログだけを残しています。HTML の `Build 10` は見えるのに UI が空の場合は、WebView 内でアプリ UI の重なり順か高さ計算が崩れている可能性があります。
-- HTML も通常 UI もどちらも見えない場合は、古い build を見ているか、native launch より前で止まっている可能性があります。
+- Build 12 は UI/UX polish build です。初回導線、タイトル、タップ操作、結果画面、ミッション表示、設定/プライバシーの見え方を重点的に確認します。
+- 通常画面では診断ビルド表示を出さず、起動失敗時や `診断情報を表示` を押した場合だけ詳細を確認できます。
 - カメラの再確認時は、Xcode Console で `EMOTION_RUNNER_CAMERA` と `EMOTION_RUNNER_MODEL` を検索すると、試行した制約・`getUserMedia` の失敗理由・video サイズ・model 読み込み結果を追えます。
+- 表情認識の実行に失敗する場合は、Xcode Console で `EMOTION_RUNNER_EXPR` も検索します。失敗してもタップ操作でプレイできることを確認してください。
 - カメラが起動しても表情認識が動かない場合は、まず `npm run validate:models` を実行してください。Build 8/9 の `tensor should have 576 values but has 116` は、runtime で shard の byte 数が壊れている時に出やすい症状です。
-- Capacitor iOS では extensionless な model shard URL が `index.html` のような fallback payload を返すことがあります。Build 10 は `.bin` shard asset と patched manifest を使います。
+- Capacitor iOS では extensionless な model shard URL が `index.html` のような fallback payload を返すことがあります。現在は `.bin` shard asset と patched manifest を使います。
 - shard が `3652 bytes` 前後しか読めていない場合は明らかに異常です。正しい `tiny_face_detector_model-shard1.bin` は `193321 bytes`、`face_expression_model-shard1.bin` は `329468 bytes` です。
 - Xcode の Devices and Simulators Console では `EMOTION_RUNNER_NATIVE_DIAG` と `EMOTION_RUNNER_NATIVE_STAGE` で検索します。
 - TestFlight へ再アップロードするたびに `CURRENT_PROJECT_VERSION` を増やします。
@@ -83,10 +82,10 @@ Archive 後に、実際に `.xcarchive` の中へ最新の web 資産が入っ�
 ```bash
 ARCHIVE_PATH="$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -n 1)"
 find "$ARCHIVE_PATH/Products/Applications/App.app/public" -maxdepth 2 -type f | sort
-grep -R "Build 10" "$ARCHIVE_PATH/Products/Applications/App.app/public/index.html"
+grep -R "__EMOTION_RUNNER_BUILD__" "$ARCHIVE_PATH/Products/Applications/App.app/public/index.html"
 ```
 
-`index.html` に `Build 10` が含まれ、`public/assets` と `public/models` が見えていれば、Archive 自体には最新資産が入っています。
+`index.html` に `__EMOTION_RUNNER_BUILD__` が含まれ、`public/assets` と `public/models` が見えていれば、Archive 自体には最新資産が入っています。
 
 ## 11. トラブルシュート
 

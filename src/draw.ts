@@ -399,10 +399,13 @@ export function drawUI(
   ctx.font = "600 12px 'Avenir Next', system-ui, sans-serif";
   ctx.fillText(missionText, sidePad + 16, h - 70);
 
-  drawGlassPanel(ctx, sidePad, topPad + 138, 156, 42, 18);
+  drawGlassPanel(ctx, sidePad, topPad + 138, 210, 52, 18);
   ctx.fillStyle = "rgba(226,232,240,0.9)";
-  ctx.font = "600 13px 'Avenir Next', system-ui, sans-serif";
-  ctx.fillText(`いまの表情 ${expressionLabel(currentExpression)}`, sidePad + 16, topPad + 151);
+  ctx.font = "700 12px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText("操作: 表情 / タップ", sidePad + 16, topPad + 150);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "700 15px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText(`いま: ${expressionLabel(currentExpression)}`, sidePad + 16, topPad + 168);
 
   // トレンドチャレンジ表示
   if (trendActive && trendLabel) {
@@ -699,6 +702,12 @@ export function drawGameOverOverlay(
     // 追加
     dailyBest: number;
     isNewDailyRecord: boolean;
+    coinsEarned: number;
+    missionText: string;
+    missionProgressText: string;
+    missionCompleted: boolean;
+    missionRewardCoins: number;
+    missionRewardEarned: boolean;
   },
 ) {
   const { ctx, width, height } = dc;
@@ -710,18 +719,24 @@ export function drawGameOverOverlay(
     showContinueHint,
     dailyBest,
     isNewDailyRecord,
+    coinsEarned,
+    missionText,
+    missionProgressText,
+    missionCompleted,
+    missionRewardCoins,
+    missionRewardEarned,
   } = params;
 
   if (!gameOver) return;
 
   const w = width();
   const h = height();
-  const cardW = Math.min(360, w - 40);
-  const cardH = 238;
+  const cardW = Math.min(520, w - 40);
+  const cardH = Math.min(300, Math.max(260, h - 118));
   const cardX = w / 2 - cardW / 2;
-  const cardY = h / 2 - 150;
+  const cardY = Math.max(18, h / 2 - cardH / 2 - 8);
   const statY = cardY + 132;
-  const statW = (cardW - 16) / 3;
+  const statW = (cardW - 24) / 4;
   const badge = isNewDailyRecord ? "今日の新記録！" : "今日のベスト";
 
   ctx.fillStyle = "rgba(2,6,23,0.68)";
@@ -752,6 +767,7 @@ export function drawGameOverOverlay(
     { label: "スコア", value: `${score}` },
     { label: "最大コンボ", value: `×${maxCombo}` },
     { label: badge, value: `${dailyBest}` },
+    { label: "獲得コイン", value: `+${coinsEarned}` },
   ];
 
   statLabels.forEach((stat, index) => {
@@ -760,10 +776,27 @@ export function drawGameOverOverlay(
     ctx.fillStyle = "rgba(226,232,240,0.78)";
     ctx.font = "600 11px 'Avenir Next', system-ui, sans-serif";
     ctx.fillText(stat.label, x + statW / 2, statY + 10);
-    ctx.fillStyle = index === 2 && isNewDailyRecord ? "#34d399" : "#ffffff";
+    ctx.fillStyle = (index === 2 && isNewDailyRecord) || index === 3 ? "#34d399" : "#ffffff";
     ctx.font = "700 16px 'Avenir Next', system-ui, sans-serif";
     ctx.fillText(stat.value, x + statW / 2, statY + 32);
   });
+
+  const missionY = statY + 78;
+  drawGlassPanel(ctx, cardX + 14, missionY, cardW - 28, 54, 18);
+  ctx.fillStyle = missionCompleted ? "#bbf7d0" : "rgba(226,232,240,0.86)";
+  ctx.font = "700 13px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText(
+    missionCompleted
+      ? missionRewardEarned
+        ? `ミッション達成！ +${missionRewardCoins} コイン`
+        : "ミッション達成！"
+      : missionText,
+    w / 2,
+    missionY + 10,
+  );
+  ctx.fillStyle = "rgba(226,232,240,0.74)";
+  ctx.font = "600 12px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText(missionProgressText, w / 2, missionY + 31);
 
   ctx.fillStyle = "rgba(226,232,240,0.82)";
   ctx.font = "600 14px 'Avenir Next', system-ui, sans-serif";
@@ -772,7 +805,7 @@ export function drawGameOverOverlay(
       ? "笑顔を続けるとコンティニューできます。下のボタン操作も使えます。"
       : "少し待つと笑顔コンティニューとボタン操作が使えます。",
     w / 2,
-    statY + 86,
+    missionY + 68,
   );
 
   const { share, retry, title } = gameOverButtons(w, h);

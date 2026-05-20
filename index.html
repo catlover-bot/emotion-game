@@ -46,9 +46,8 @@
           letter-spacing: 0.02em;
         "
       >表情ランナー
-TestFlight診断ビルド
-Build 11
-HTML表示確認中…</div>
+顔で走る、タップでも遊べる
+起動中…</div>
     </div>
 
     <div id="appShell">
@@ -58,12 +57,12 @@ HTML表示確認中…</div>
         <div id="uiRoot">
           <section class="boot-screen" data-boot-mode="loading">
             <div class="boot-card">
-              <span class="eyebrow">testflight beta</span>
+              <span class="eyebrow">loading</span>
               <h2>表情ランナーを起動中…</h2>
-              <p>初回起動やアップデート直後は、数秒ほど準備に時間がかかることがあります。</p>
+              <p>まもなく遊べます。横向きのままお待ちください。</p>
               <div class="boot-meta">
-                <strong>起動ステージ</strong>
-                <span>読み込みを開始しています…</span>
+                <strong>準備中</strong>
+                <span>ゲーム画面を整えています…</span>
               </div>
             </div>
           </section>
@@ -74,7 +73,7 @@ HTML表示確認中…</div>
     <script>
       (function () {
         window.__EMOTION_RUNNER_STATIC_HTML_LOADED__ = true;
-        window.__EMOTION_RUNNER_BUILD__ = "11";
+        window.__EMOTION_RUNNER_BUILD__ = "12";
         var stampText = document.getElementById("hardBootStampText");
 
         function setLines(lines) {
@@ -87,9 +86,8 @@ HTML表示確認中…</div>
           if (window.__EMOTION_RUNNER_APP_READY__ === true) return;
           setLines([
             "表情ランナー",
-            "Build 11",
-            "起動処理がまだ完了していません",
-            "JSまたはアセット読み込みで停止している可能性があります",
+            "もう少しだけ準備しています…",
+            "時間がかかる場合はアプリを再起動してください",
           ]);
         }, 2000);
 
@@ -97,9 +95,8 @@ HTML表示確認中…</div>
           if (window.__EMOTION_RUNNER_APP_READY__ === true) return;
           setLines([
             "表情ランナー",
-            "Build 11",
-            "診断: index.htmlは表示されています",
-            "main.tsまたはapp.tsの起動に失敗している可能性があります",
+            "起動に時間がかかっています",
+            "再起動しても続く場合は、設定の診断情報を確認してください",
           ]);
         }, 5000);
       })();
