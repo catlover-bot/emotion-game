@@ -3,11 +3,14 @@
 ## Desktop checks
 
 - [ ] `npm run validate:models` が通る
+- [ ] `npm run validate:mediapipe` が通る
 - [ ] オンボーディングが初回のみ表示される
 - [ ] オンボーディングが 5 秒程度で内容を理解できる短さになっている
 - [ ] 「はじめる」と「タップだけで遊ぶ」が分かりやすい
 - [ ] 「カメラを許可する」導線が見やすい
 - [ ] カメラ許可で表情認識が開始される
+- [ ] 表情認識の主エンジンが MediaPipe として初期化される
+- [ ] MediaPipe 初期化に失敗しても補助エンジンまたはタップ操作に切り替わる
 - [ ] カメラ拒否時に日本語の復旧案内が出る
 - [ ] 「もう一度カメラを確認」で再試行できる
 - [ ] 「あそび方」から練習画面を開ける
@@ -41,7 +44,7 @@
 
 ## iPhone checks
 
-- [ ] Build 13 がインストールされている
+- [ ] Build 14 がインストールされている
 - [ ] アプリが横画面専用で起動し、縦向きに回転しない
 - [ ] `UIRequiresFullScreen = true` の前提でフルスクリーン表示される
 - [ ] iPhone の「設定」→「表情ランナー」→「カメラ」が ON になっている
@@ -50,11 +53,19 @@
 - [ ] 再インストールせず起動し直してもタイトルへ自然に戻れる
 - [ ] カメラ許可ダイアログの前に日本語説明が出る
 - [ ] 初回インストールでカメラ許可を ON にすると表情認識まで進める
+- [ ] Xcode Console で `EMOTION_RUNNER_MEDIAPIPE init-success` を確認できる
+- [ ] 診断情報に engine selected / MediaPipe model / MediaPipe wasm が表示される
+- [ ] `face_landmarker.task` と wasm runtime が `public/mediapipe` から読まれている
+- [ ] 機内モードでもインストール済みアプリが起動し、MediaPipe asset を CDN なしで読み込める
 - [ ] カメラは起動するのに表情認識だけ失敗する場合、`tensor should have 576 values but has 116` のような shard 読み込み異常が出ていない
 - [ ] カメラ拒否後に復旧案内が全画面で出る
 - [ ] カメラ拒否後、設定で ON にして「もう一度カメラを確認」で復帰できる
 - [ ] カメラ拒否後、必要なら TestFlight アプリを削除 / 再インストールして再許可できる
 - [ ] 実機で笑顔 / 怒った顔 / 驚いた顔 / 悲しい顔が認識される
+- [ ] MediaPipe blendshape 由来の 笑顔 / 怒った顔 / 驚いた顔 が face-api 時代より分かりやすく反応する
+- [ ] 笑顔は mouthSmileLeft / mouthSmileRight 系スコアでジャンプに反応する
+- [ ] 怒った顔は browDownLeft / browDownRight 系スコアで攻撃に反応する
+- [ ] 驚いた顔は jawOpen / eyeWide / browInnerUp 系スコアでブーストに反応する
 - [ ] 表情操作チェックで 笑顔 / 怒った顔 / 驚いた顔 が 5 秒以内に分かりやすく確認できる
 - [ ] 表情操作チェックで顔が外れたときに「顔を中央に入れてください」などの案内が出る
 - [ ] 表情操作の current expression / action / confidence がプレイヤーに伝わる
@@ -67,6 +78,7 @@
 - [ ] model 読み込み失敗時に `診断情報を表示` から candidate / fetch / XHR の結果を確認できる
 - [ ] 表情認識の実行失敗時も fatal error ではなくタップ操作に切り替わる
 - [ ] 診断情報に current mode / last expression / confidence / face detected / last detection error が表示される
+- [ ] 診断情報に MediaPipe init result / raw blendshape mapping / selected expression / sensitivity が表示される
 - [ ] shard の byte 数が `3652 bytes` 前後になっていないことを確認できる
 - [ ] model shard が `.bin` として読み込まれ、`tiny_face_detector_model-shard1.bin` は `193321 bytes`、`face_expression_model-shard1.bin` は `329468 bytes` になっている
 - [ ] 横画面でノッチやホームインジケータに UI が重ならない
@@ -87,4 +99,5 @@
 - [ ] 新しい Archive 前に Xcode の Build 番号を増やしている
 - [ ] Xcode Console / Devices and Simulators Console で `EMOTION_RUNNER_CAMERA` を検索できる
 - [ ] Xcode Console / Devices and Simulators Console で `EMOTION_RUNNER_MODEL` を検索できる
+- [ ] Xcode Console / Devices and Simulators Console で `EMOTION_RUNNER_MEDIAPIPE` を検索できる
 - [ ] Xcode Console / Devices and Simulators Console で `EMOTION_RUNNER_EXPR` を検索できる

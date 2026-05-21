@@ -47,7 +47,9 @@ export type ModelCandidateDiagnostics = {
 export type ExpressionRuntimeDiagnostic = {
   stage: string;
   success: boolean;
+  engine?: string;
   faceApiLoaded: boolean;
+  mediaPipeLoaded?: boolean;
   modelsLoaded: boolean;
   videoReadyState: number;
   videoWidth: number;
@@ -55,6 +57,17 @@ export type ExpressionRuntimeDiagnostic = {
   errorName: string;
   errorMessage: string;
   errorStack: string;
+  mediaPipeModelUrl?: string;
+  mediaPipeWasmUrl?: string;
+  fallbackUsed?: boolean;
+  initTimeMs?: number;
+  detectTimeMs?: number;
+  detectionFps?: number;
+  detectionIntervalMs?: number;
+  sensitivity?: string;
+  selectedExpression?: string;
+  faceDetected?: boolean;
+  elapsedSinceLastDetectMs?: number;
 };
 
 export type CameraDiagnostics = {
@@ -73,6 +86,11 @@ export type CameraDiagnostics = {
   notes: string[];
   modelUrl: string;
   selectedModelCandidate: string;
+  expressionEngine?: string;
+  expressionEngineFallbackUsed?: boolean;
+  mediaPipeModelUrl?: string;
+  mediaPipeWasmUrl?: string;
+  mediaPipeAssetChecks?: ModelAssetCheck[];
   modelAssetChecks: ModelAssetCheck[];
   modelCandidates: ModelCandidateDiagnostics[];
   expressionDiagnostics: ExpressionRuntimeDiagnostic[];

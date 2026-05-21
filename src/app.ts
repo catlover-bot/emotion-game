@@ -5,12 +5,12 @@ import { clearOwnedCosmetics } from "./cosmetics";
 import { createGame, type Game } from "./game";
 import {
   ExpressionLoopSetupError,
-  FaceModelSetupError,
   type ExpressionStatus,
-  getFaceModelBaseUrl,
-  setupFaceModels,
+  ExpressionModelSetupError,
+  getExpressionModelBaseUrl,
+  setupExpressionModels,
   startExpressionLoop,
-} from "./face";
+} from "./expressionEngine";
 import { createAppShell, type CameraUiState } from "./appShell";
 import {
   clearAppStorage,
@@ -86,7 +86,7 @@ function createModelFailureDiagnostics(
   diagnostics.videoReadyState = video.readyState;
   diagnostics.videoWidth = video.videoWidth;
   diagnostics.videoHeight = video.videoHeight;
-  diagnostics.modelUrl = getFaceModelBaseUrl();
+  diagnostics.modelUrl = getExpressionModelBaseUrl();
   diagnostics.selectedModelCandidate = "";
   diagnostics.expressionDiagnostics = [...diagnostics.expressionDiagnostics];
   diagnostics.notes.push(
@@ -121,7 +121,7 @@ function createExpressionFailureDiagnostics(
   diagnostics.videoReadyState = video.readyState;
   diagnostics.videoWidth = video.videoWidth;
   diagnostics.videoHeight = video.videoHeight;
-  diagnostics.modelUrl = getFaceModelBaseUrl();
+  diagnostics.modelUrl = getExpressionModelBaseUrl();
   diagnostics.notes.push(
     "カメラとモデルの準備後に、表情認識の実行でエラーが発生しました。",
     "表情認識だけを停止し、タップ操作で遊べる状態にしています。",
@@ -482,9 +482,9 @@ export async function startApp(startup: StartupReporter) {
       startup.setStage("models-loading", "表情認識モデルを読み込んでいます…");
       setCameraUi("requesting", "表情認識の準備をしています...");
       try {
-        lastCameraDiagnostics = await setupFaceModels(lastCameraDiagnostics);
+        lastCameraDiagnostics = await setupExpressionModels(lastCameraDiagnostics);
       } catch (error) {
-        const diagnostics = error instanceof FaceModelSetupError
+        const diagnostics = error instanceof ExpressionModelSetupError
           ? error.diagnostics
           : createModelFailureDiagnostics(lastCameraDiagnostics, video, error);
         console.error("EMOTION_RUNNER_MODEL setup-failed", {

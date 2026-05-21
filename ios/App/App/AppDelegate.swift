@@ -5,7 +5,7 @@ import Capacitor
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
-    private let diagnosticBuild = "13"
+    private let diagnosticBuild = "14"
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         logNativeStage("didFinishLaunching")

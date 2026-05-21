@@ -1,5 +1,5 @@
 import type { CameraDiagnostics } from "./camera";
-import type { ExpressionStatus } from "./face";
+import type { ExpressionStatus } from "./expressionEngine";
 import type { ControlMode, Expression, ExpressionSensitivity } from "./types";
 import type { GameAction, GameSnapshot } from "./game";
 import type { Rarity } from "./cosmetics";
@@ -152,6 +152,19 @@ function getSensitivityName(sensitivity: ExpressionSensitivity): string {
       return "高感度";
     default:
       return "やさしい";
+  }
+}
+
+function getExpressionEngineName(engine: string | undefined): string {
+  switch (engine) {
+    case "mediapipe":
+      return "MediaPipe";
+    case "faceapi":
+      return "補助エンジン";
+    case "tap":
+      return "タップ操作";
+    default:
+      return "未選択";
   }
 }
 
@@ -422,6 +435,33 @@ export function createAppShell(options: AppShellOptions) {
       })
       .join("");
 
+    const mediaPipeAssetCards = (diagnostics.mediaPipeAssetChecks ?? [])
+      .map((assetCheck) => {
+        const lines = [
+          `URL: ${assetCheck.url}`,
+          `fetch: ${getDiagnosticStatusLabel(assetCheck.fetchSuccess)}`,
+          `fetch status: ${assetCheck.fetchStatus || "-"}`,
+          `fetch bytes: ${assetCheck.fetchByteLength || 0}`,
+          `fetch error.name: ${assetCheck.fetchErrorName || "-"}`,
+          `fetch error.message: ${assetCheck.fetchErrorMessage || "-"}`,
+          `XHR: ${getDiagnosticStatusLabel(assetCheck.xhrSuccess)}`,
+          `XHR status: ${assetCheck.xhrStatus || "-"}`,
+          `XHR bytes: ${assetCheck.xhrByteLength || 0}`,
+          `XHR error.name: ${assetCheck.xhrErrorName || "-"}`,
+          `XHR error.message: ${assetCheck.xhrErrorMessage || "-"}`,
+        ]
+          .map((line) => `<span>${escapeHtml(line)}</span>`)
+          .join("");
+
+        return `
+          <div class="diagnostic-card">
+            <strong>MediaPipe: ${escapeHtml(assetCheck.assetName)}</strong>
+            ${lines}
+          </div>
+        `;
+      })
+      .join("");
+
     const modelCandidateCards = diagnostics.modelCandidates
       .map((candidate, index) => {
         const lines = [
@@ -469,8 +509,17 @@ export function createAppShell(options: AppShellOptions) {
         const lines = [
           `stage: ${entry.stage}`,
           `結果: ${entry.success ? "成功" : "失敗"}`,
+          `engine: ${entry.engine || "-"}`,
+          `MediaPipe loaded: ${getBooleanLabel(Boolean(entry.mediaPipeLoaded))}`,
           `face-api loaded: ${getBooleanLabel(entry.faceApiLoaded)}`,
           `models loaded: ${getBooleanLabel(entry.modelsLoaded)}`,
+          `MediaPipe model: ${entry.mediaPipeModelUrl || "-"}`,
+          `MediaPipe wasm: ${entry.mediaPipeWasmUrl || "-"}`,
+          `sensitivity: ${entry.sensitivity || "-"}`,
+          `detect time: ${entry.detectTimeMs ?? "-"}ms`,
+          `detection interval: ${entry.detectionIntervalMs ?? "-"}ms`,
+          `face detected: ${entry.faceDetected === undefined ? "-" : getBooleanLabel(entry.faceDetected)}`,
+          `selected expression: ${entry.selectedExpression || "-"}`,
           `video.readyState: ${entry.videoReadyState}`,
           `video size: ${entry.videoWidth} x ${entry.videoHeight}`,
           `error.name: ${entry.errorName || "-"}`,
@@ -494,6 +543,7 @@ export function createAppShell(options: AppShellOptions) {
           <div class="diagnostic-card">
             <strong>現在の表情状態</strong>
             <span>mode: ${escapeHtml(state.controlMode)}</span>
+            <span>engine: ${escapeHtml(getExpressionEngineName(state.expressionStatus.engine))}</span>
             <span>last expression: ${escapeHtml(getExpressionName(state.expressionStatus.expression))}</span>
             <span>last confidence: ${getConfidencePercent(state.expressionStatus)}%</span>
             <span>face detected: ${getBooleanLabel(state.expressionStatus.faceDetected)}</span>
@@ -525,10 +575,15 @@ export function createAppShell(options: AppShellOptions) {
               <span>phase: ${escapeHtml(diagnostics.phase)}</span>
               <span>selected model candidate: ${escapeHtml(diagnostics.selectedModelCandidate || "-")}</span>
               <span>model URL: ${escapeHtml(diagnostics.modelUrl || "-")}</span>
+              <span>engine selected: ${escapeHtml(getExpressionEngineName(diagnostics.expressionEngine))}</span>
+              <span>fallback used: ${getBooleanLabel(Boolean(diagnostics.expressionEngineFallbackUsed))}</span>
+              <span>MediaPipe model: ${escapeHtml(diagnostics.mediaPipeModelUrl || "-")}</span>
+              <span>MediaPipe wasm: ${escapeHtml(diagnostics.mediaPipeWasmUrl || "-")}</span>
             </div>
             ${expressionStatusCard}
             ${noteHtml}
             ${attemptCards}
+            ${mediaPipeAssetCards}
             ${modelAssetCards}
             ${modelCandidateCards}
             ${expressionCards}
@@ -605,7 +660,7 @@ export function createAppShell(options: AppShellOptions) {
       <div class="${classes}">
         <div class="expression-live-header">
           <strong>${isReady && state.controlMode === "expression" ? "認識中" : "表情操作チェック"}</strong>
-          <span>${getSensitivityName(state.expressionSensitivity)}</span>
+          <span>${getExpressionEngineName(status?.engine)} / ${getSensitivityName(state.expressionSensitivity)}</span>
         </div>
         <div class="expression-live-main">
           <span>いまの表情: <b>${expressionName}</b></span>

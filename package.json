@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "validate:models": "node scripts/validate_face_models.mjs",
+    "validate:mediapipe": "node scripts/validate_mediapipe_assets.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
@@ -17,6 +18,7 @@
     "@capacitor/cli": "^7.4.4",
     "@capacitor/core": "^7.4.4",
     "@capacitor/ios": "^7.4.4",
+    "@mediapipe/tasks-vision": "^0.10.35",
     "face-api.js": "^0.22.2"
   }
 }
