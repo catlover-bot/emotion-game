@@ -236,6 +236,20 @@ export function findBackgroundSkin(id: string | null | undefined): BackgroundSki
   return BACKGROUND_SKINS.find((s) => s.id === id) ?? fallback;
 }
 
+export function getCosmeticCollectionSummary(state: OwnedCosmetics): {
+  ownedCharacterCount: number;
+  totalCharacterCount: number;
+  ownedBackgroundCount: number;
+  totalBackgroundCount: number;
+} {
+  return {
+    ownedCharacterCount: state.ownedCharacterSkinIds.length,
+    totalCharacterCount: CHARACTER_SKINS.length,
+    ownedBackgroundCount: state.ownedBackgroundSkinIds.length,
+    totalBackgroundCount: BACKGROUND_SKINS.length,
+  };
+}
+
 // ==== ガチャ ====
 
 // 1回のガチャに必要なコイン

@@ -998,7 +998,7 @@ button {
   }
 
   .title-stats {
-    grid-template-columns: 0.9fr 0.75fr 1.35fr 1.35fr;
+    grid-template-columns: 0.9fr 0.9fr 0.75fr 1.2fr 1.35fr;
   }
 
   .face-hints {
@@ -1242,7 +1242,7 @@ button {
 
 @media (orientation: landscape) and (max-height: 390px) {
   .title-stats {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .title-menu-grid {

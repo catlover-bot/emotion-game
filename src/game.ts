@@ -1,5 +1,5 @@
 // src/game.ts
-import type { Expression } from "./types";
+import type { ControlMode, Expression } from "./types";
 import type {
   Bomb,
   Star,
@@ -30,12 +30,26 @@ import {
   rollGacha,
   cycleCharacterSkin,
   cycleBackgroundSkin,
+  getCosmeticCollectionSummary,
   GACHA_COST,
   type OwnedCosmetics,
 } from "./cosmetics";
 import { shareResultImage } from "./share";
 import { dailySeed } from "./dailySeed";
 import { DAILY_BEST_PREFIX, DAILY_MISSION_PREFIX } from "./storage";
+import {
+  type AchievementId,
+  type AchievementUnlock,
+  getAchievementSummary,
+  loadAllTimeBest,
+  saveAllTimeBestIfHigher,
+  unlockAchievement,
+} from "./achievements";
+import {
+  reportAchievement,
+  showLeaderboard,
+  submitScore,
+} from "./gameCenter";
 
 export type Scene = "title" | "play" | "customize" | "gacha";
 export type GameAction = "jump" | "attack" | "boost";
@@ -47,9 +61,22 @@ export type GameSnapshot = {
   maxCombo: number;
   dailyBest: number;
   isNewDailyRecord: boolean;
+  allTimeBest: number;
+  isNewAllTimeBest: boolean;
   rank: string;
   coins: number;
   coinsEarned: number;
+  controlMode: ControlMode;
+  controlModeLabel: string;
+  lastActionText: string | null;
+  achievementToast: string | null;
+  achievementsUnlockedThisRun: string[];
+  achievementsUnlockedCount: number;
+  achievementsTotalCount: number;
+  ownedCharacterCount: number;
+  totalCharacterCount: number;
+  ownedBackgroundCount: number;
+  totalBackgroundCount: number;
   missionText: string;
   missionProgressText: string;
   missionCompleted: boolean;
@@ -67,6 +94,7 @@ export type GameSnapshot = {
 
 export type Game = {
   setExpression(exp: Expression): void;
+  setControlMode(mode: ControlMode): void;
   tap(x: number, y: number): void;
   getSnapshot(): GameSnapshot;
   subscribe(listener: (snapshot: GameSnapshot) => void): () => void;
@@ -79,6 +107,7 @@ export type Game = {
   cycleBackground(): void;
   rollGachaAction(): void;
   triggerAction(action: GameAction): void;
+  openRanking(): void;
   share(): Promise<void>;
 };
 
@@ -149,6 +178,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
   // ===== ゲーム内部状態 =====
   let currentExpression: Expression = "neutral";
+  let currentControlMode: ControlMode = "tap";
 
   const width = () => viewportWidth;
   const height = () => viewportHeight;
@@ -172,6 +202,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   let feverGauge = 0; // 0〜100
   let inFever = false;
   let feverCount = 0;
+  let runStartTick = 0;
   let life = 3;
   let gameOver = false;
   let tick = 0;
@@ -221,6 +252,16 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   let dailyBest = loadDailyBest();
   let isNewDailyRecord = false;
   const DAILY_RECORD_BONUS_COINS = 50;
+  let allTimeBest = loadAllTimeBest();
+  let isNewAllTimeBest = false;
+  let runProgressRecorded = false;
+
+  // ===== Local achievements / Game Center-ready progress events =====
+  let achievementsUnlockedThisRun: AchievementUnlock[] = [];
+  let achievementToastText: string | null = null;
+  let achievementToastTick = -999;
+  let lastActionText: string | null = null;
+  let lastActionTick = -999;
 
   // ===== Daily seed で「今日の乱数」を固定（競争性の核） =====
   // ※表情入力タイミングで分岐はするが、スポーン/乱数の素性は同一になる
@@ -277,6 +318,14 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       condition: (s) => s.feverCount >= 1,
       progressText: (s) => `${Math.min(s.feverCount, 1)} / 1 回`,
     },
+    {
+      id: "coins-10",
+      text: "今日のミッション: コインを10枚集める",
+      resultText: "コイン10枚達成！",
+      rewardCoins: 20,
+      condition: (s) => s.coinsEarned >= 10,
+      progressText: (s) => `${Math.min(s.coinsEarned, 10)} / 10 コイン`,
+    },
   ];
   const dailyMission = dailyMissions[daySeed % dailyMissions.length] ?? dailyMissions[0];
   let missionRewardEarnedThisRun = false;
@@ -320,6 +369,8 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   let gachaHappyTicks = 0;
   let gachaSadTicks = 0;
   let manualBoostTicks = 0;
+  let lastSurprisedFeedbackTick = -999;
+  const SURPRISED_FEEDBACK_COOLDOWN = 36;
 
   // ===== ユーティリティ =====
 
@@ -328,6 +379,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       score,
       maxCombo,
       feverCount,
+      coinsEarned: lastCoinsEarned,
     };
   }
 
@@ -341,11 +393,13 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   function addCombo() {
     combo += 1;
     if (combo > maxCombo) maxCombo = combo;
-    feverGauge += inFever ? 1.8 : 3.2;
+    feverGauge += inFever ? 2.1 : 4.1;
     if (feverGauge >= 100 && !inFever) {
       inFever = true;
       feverGauge = 100;
       feverCount += 1;
+      recordAchievement("first_fever");
+      setActionFeedback("フィーバー突入！");
     }
   }
 
@@ -389,9 +443,59 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     likeParticles = likeParticles.filter((p) => p.alive);
   }
 
+  function getControlModeLabel(): string {
+    return currentControlMode === "expression" ? "表情操作" : "タップ操作";
+  }
+
+  function setActionFeedback(text: string) {
+    lastActionText = text;
+    lastActionTick = tick;
+    markSnapshotDirty();
+  }
+
+  function getActiveActionFeedback(): string | null {
+    return tick - lastActionTick < 90 ? lastActionText : null;
+  }
+
+  function getActiveAchievementToast(): string | null {
+    return tick - achievementToastTick < 210 ? achievementToastText : null;
+  }
+
+  function recordAchievement(id: AchievementId) {
+    const unlock = unlockAchievement(id);
+    if (!unlock) return;
+
+    achievementsUnlockedThisRun.push(unlock);
+    achievementToastText = `実績解除: ${unlock.name}`;
+    achievementToastTick = tick;
+    spawnLikeShower(width() / 2, groundY() - 90);
+    void reportAchievement(unlock.gameCenterId, 100);
+    markSnapshotDirty();
+  }
+
+  function recordRunStartProgress() {
+    recordAchievement("first_play");
+    recordAchievement(currentControlMode === "expression" ? "expression_mode_play" : "tap_mode_play");
+  }
+
+  function recordRunEndProgress() {
+    if (runProgressRecorded) return;
+    runProgressRecorded = true;
+
+    if (score >= 1000) recordAchievement("score_1000");
+    if (score >= 5000) recordAchievement("score_5000");
+    if (maxCombo >= 10) recordAchievement("combo_10");
+    if (maxCombo >= 30) recordAchievement("combo_30");
+
+    void submitScore(score, {
+      mode: currentControlMode,
+      maxCombo,
+    });
+  }
+
   // ゲームオーバー時にコイン付与
   function awardCoinsOnGameOver() {
-    const earned = Math.floor(score / 100); // 例: スコア100で1コイン
+    const earned = score > 0 ? Math.max(3, Math.floor(score / 85)) : 0;
     if (earned <= 0) return;
 
     lastCoinsEarned = earned;
@@ -424,6 +528,15 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       spawnLikeShower(width() / 2, groundY() - 120);
     } else {
       isNewDailyRecord = false;
+    }
+  }
+
+  function updateAllTimeBestOnGameOver() {
+    const result = saveAllTimeBestIfHigher(score);
+    allTimeBest = result.best;
+    isNewAllTimeBest = result.isNew;
+    if (isNewAllTimeBest) {
+      spawnLikeShower(width() / 2, groundY() - 160);
     }
   }
 
@@ -484,7 +597,9 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
       // Daily best / bonus
       updateDailyBestOnGameOver();
+      updateAllTimeBestOnGameOver();
       awardDailyMissionOnGameOver();
+      recordRunEndProgress();
       markSnapshotDirty();
     }
   }
@@ -492,10 +607,12 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   function spawnBomb() {
     const r = 20 + rng() * 18;
     const gY = groundY();
+    const elapsed = Math.max(0, tick - runStartTick);
+    const ramp = Math.min(1.8, Math.max(0, elapsed - 900) / 1500);
     bombs.push({
       x: width() + r + 10,
       y: gY,
-      vx: -(3 + rng() * 2 + (inFever ? 1.2 : 0)),
+      vx: -(2.45 + rng() * 1.35 + ramp + (inFever ? 0.9 : 0)),
       radius: r,
       alive: true,
     });
@@ -568,6 +685,8 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     const bgSkin = findBackgroundSkin(cosmetics.equippedBackgroundSkinId);
     const publicState = getPublicState();
     const missionCompleted = dailyMission.condition(publicState);
+    const achievementSummary = getAchievementSummary();
+    const collection = getCosmeticCollectionSummary(cosmetics);
     return {
       scene,
       gameOver,
@@ -576,9 +695,22 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       maxCombo,
       dailyBest,
       isNewDailyRecord,
+      allTimeBest,
+      isNewAllTimeBest,
       rank: getRank(score),
       coins: cosmetics.coins,
       coinsEarned: lastCoinsEarned,
+      controlMode: currentControlMode,
+      controlModeLabel: getControlModeLabel(),
+      lastActionText: getActiveActionFeedback(),
+      achievementToast: getActiveAchievementToast(),
+      achievementsUnlockedThisRun: achievementsUnlockedThisRun.map((achievement) => achievement.name),
+      achievementsUnlockedCount: achievementSummary.unlockedCount,
+      achievementsTotalCount: achievementSummary.totalCount,
+      ownedCharacterCount: collection.ownedCharacterCount,
+      totalCharacterCount: collection.totalCharacterCount,
+      ownedBackgroundCount: collection.ownedBackgroundCount,
+      totalBackgroundCount: collection.totalBackgroundCount,
       missionText: dailyMission.text,
       missionProgressText: dailyMission.progressText(publicState),
       missionCompleted,
@@ -719,8 +851,11 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     feverGauge = 0;
     inFever = false;
     feverCount = 0;
+    runStartTick = tick;
     life = 3;
     gameOver = false;
+    runProgressRecorded = false;
+    achievementsUnlockedThisRun = [];
 
     // プレイヤー位置リセット
     playerX = 180;
@@ -744,6 +879,12 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     lastCoinsEarned = 0;
     lastCoinsEarnedTick = 0;
     missionRewardEarnedThisRun = false;
+    isNewAllTimeBest = false;
+    lastActionText = null;
+    lastActionTick = -999;
+    achievementToastText = null;
+    achievementToastTick = -999;
+    lastSurprisedFeedbackTick = -999;
 
     // トレンドチャレンジもリセット
     trend = null;
@@ -780,6 +921,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
   function startRun() {
     resetGame();
+    recordRunStartProgress();
     setScene("play");
     spawnLikeShower(width() / 2, groundY() - 80);
   }
@@ -801,6 +943,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     const next = cycleCharacterSkin(cosmetics);
     if (next !== cosmetics) {
       updateCosmetics(next);
+      recordAchievement("first_skin_change");
       spawnLikeShower(width() / 2, groundY() - 40);
       markSnapshotDirty();
     }
@@ -811,6 +954,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     const next = cycleBackgroundSkin(cosmetics);
     if (next !== cosmetics) {
       updateCosmetics(next);
+      recordAchievement("first_skin_change");
       spawnLikeShower(width() / 2, groundY() - 80);
       markSnapshotDirty();
     }
@@ -827,7 +971,16 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
     try {
       const { state, result } = rollGacha(cosmetics);
-      updateCosmetics(state);
+      const nextState = result.isNew
+        ? {
+            ...state,
+            equippedCharacterSkinId:
+              result.type === "character" ? result.id : state.equippedCharacterSkinId,
+            equippedBackgroundSkinId:
+              result.type === "background" ? result.id : state.equippedBackgroundSkinId,
+          }
+        : state;
+      updateCosmetics(nextState);
       const kind = result.type === "character" ? "キャラ衣装" : "背景スキン";
       const rarityLabel =
         result.rarity === "legendary"
@@ -837,9 +990,13 @@ export function createGame(canvas: HTMLCanvasElement): Game {
             : result.rarity === "rare"
               ? "レア"
               : "ノーマル";
-      const newStr = result.isNew ? "新しく追加！" : "すでに所持済み";
+      const newStr = result.isNew ? "新しく追加！すぐ装備しました" : "ダブりでした";
       lastGachaMessage = `${kind} を入手 (${rarityLabel}) ${newStr}`;
       lastGachaTick = tick;
+      recordAchievement("first_gacha");
+      if (result.isNew) {
+        recordAchievement("first_skin_change");
+      }
       spawnLikeShower(width() / 2, height() / 2);
     } catch {
       lastGachaMessage = "ガチャエラーが発生しました";
@@ -870,6 +1027,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     addCombo();
     addScore(80);
     spawnStar(playerX + 140, gY - 120);
+    setActionFeedback(source === "expression" ? "笑顔ジャンプ！" : "ジャンプ！");
     logExpressionAction("jump", source);
   }
 
@@ -881,12 +1039,14 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     lastAngryTick = tick;
     addCombo();
     addScore(60);
+    setActionFeedback(source === "expression" ? "怒りアタック！" : "攻撃！");
     logExpressionAction("attack", source);
   }
 
   function triggerBoost(source: "expression" | "touch" = "touch") {
     if (scene !== "play" || gameOver) return;
     manualBoostTicks = Math.max(manualBoostTicks, 12);
+    setActionFeedback(source === "expression" ? "驚きブースト！" : "ブースト！");
     logExpressionAction("boost", source);
   }
 
@@ -991,7 +1151,9 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       const boostingByTouch = manualBoostTicks > 0;
       if (boostingByFace) {
         playerX += 0.65;
-        if (tick % 18 === 0) {
+        if (tick - lastSurprisedFeedbackTick > SURPRISED_FEEDBACK_COOLDOWN) {
+          lastSurprisedFeedbackTick = tick;
+          setActionFeedback("驚きブースト！");
           logExpressionAction("boost", "expression");
         }
       } else if (boostingByTouch) {
@@ -1088,20 +1250,31 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     if (scene !== "play") return;
     if (gameOver) return;
 
+    const elapsed = Math.max(0, tick - runStartTick);
+
+    if (elapsed < 100) {
+      if (elapsed === 45) {
+        spawnStar(width() + 30, groundY() - 150);
+      }
+      return;
+    }
+
     // 爆弾スポーン
-    const baseInterval = inFever ? 40 : 70;
-    const interval = Math.max(28, baseInterval - Math.floor(score / 1500));
-    if (tick % interval === 0) {
+    const baseInterval = elapsed < 900 ? 96 : inFever ? 46 : 78;
+    const rampPenalty = Math.floor(Math.max(0, elapsed - 900) / 480);
+    const scorePenalty = Math.floor(score / 2400);
+    const interval = Math.max(34, baseInterval - rampPenalty - scorePenalty);
+    if (elapsed % interval === 0) {
       spawnBomb();
     }
 
     // フィーバー中はスター多め
-    if (inFever && tick % 35 === 0) {
+    if (inFever && elapsed % 35 === 0) {
       spawnStar();
     }
 
     // たまにラッキースター（rng 使用）
-    if (!inFever && tick % 120 === 0 && rng() < 0.35) {
+    if (!inFever && elapsed % 115 === 0 && rng() < (elapsed < 900 ? 0.55 : 0.38)) {
       spawnStar(width() + 30, groundY() - 150);
     }
   }
@@ -1109,7 +1282,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   function makeShareText() {
     const rank = getRank(score);
     const dailyLine = isNewDailyRecord ? `今日の新記録！ ${dailyBest}` : `今日のベスト: ${dailyBest}`;
-    return `${appName}で ${score} 点！\n顔で走るアクションゲームに挑戦中！\nランク: ${rank}\n最大コンボ: ×${maxCombo}\n${dailyLine}`;
+    return `${appName}で ${score} 点！\n笑顔ジャンプと怒りアタックで走り抜けた！\nランク: ${rank}\n最大コンボ: ×${maxCombo}\nモード: ${getControlModeLabel()}\n${dailyLine}`;
   }
 
   async function shareResult() {
@@ -1225,6 +1398,9 @@ export function createGame(canvas: HTMLCanvasElement): Game {
         feverGauge,
         inFever,
         currentExpression,
+        controlModeLabel: getControlModeLabel(),
+        actionFeedbackText: getActiveActionFeedback(),
+        achievementToastText: getActiveAchievementToast(),
         missionText: getCurrentMissionText(),
         trendActive: trendInfo.active,
         trendLabel: trendInfo.label,
@@ -1247,12 +1423,15 @@ export function createGame(canvas: HTMLCanvasElement): Game {
         showContinueHint,
         dailyBest,
         isNewDailyRecord,
+        allTimeBest,
+        isNewAllTimeBest,
         coinsEarned: lastCoinsEarned,
         missionText: dailyMission.text,
         missionProgressText: dailyMission.progressText(getPublicState()),
         missionCompleted: dailyMission.condition(getPublicState()),
         missionRewardCoins: dailyMission.rewardCoins,
         missionRewardEarned: missionRewardEarnedThisRun,
+        achievementsUnlocked: achievementsUnlockedThisRun.map((achievement) => achievement.name),
       });
     } else if (scene === "title") {
       drawBackground(drawCtx, {
@@ -1277,7 +1456,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       ctx.fillText(appName, w / 2, 58);
       ctx.font = "15px 'Avenir Next', system-ui, sans-serif";
       ctx.fillStyle = "rgba(226,232,240,0.86)";
-      ctx.fillText(`今日のベスト ${dailyBest}  |  コイン ${cosmetics.coins}`, w / 2, 90);
+      ctx.fillText(`今日のベスト ${dailyBest}  |  最高 ${allTimeBest}  |  コイン ${cosmetics.coins}`, w / 2, 90);
       ctx.textAlign = "left";
     } else if (scene === "customize") {
       drawBackground(drawCtx, {
@@ -1369,6 +1548,10 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     setExpression(exp: Expression) {
       currentExpression = exp;
     },
+    setControlMode(mode: ControlMode) {
+      currentControlMode = mode;
+      markSnapshotDirty();
+    },
     tap(x: number, y: number) {
       handleTap(x, y);
     },
@@ -1383,6 +1566,9 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     cycleBackground,
     rollGachaAction() {
       runGacha();
+    },
+    openRanking() {
+      void showLeaderboard();
     },
     triggerAction(action: GameAction) {
       switch (action) {

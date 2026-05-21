@@ -23,6 +23,7 @@ type OverlayScreen =
   | "practice"
   | "privacy"
   | "settings"
+  | "ranking"
   | "recovery";
 
 type PracticeMode = "learn" | "start";
@@ -33,6 +34,7 @@ type AppShellOptions = {
   onStartGame(): void;
   onOpenCustomize(): void;
   onOpenGacha(): void;
+  onOpenRanking(): void;
   onBackToTitle(): void;
   onCycleCharacter(): void;
   onCycleBackground(): void;
@@ -736,6 +738,10 @@ export function createAppShell(options: AppShellOptions) {
             <strong>${game.dailyBest}</strong>
           </div>
           <div class="stat-pill">
+            <span>最高スコア</span>
+            <strong>${game.allTimeBest}</strong>
+          </div>
+          <div class="stat-pill">
             <span>コイン</span>
             <strong>${game.coins}</strong>
           </div>
@@ -756,11 +762,10 @@ export function createAppShell(options: AppShellOptions) {
         <div class="menu-grid title-menu-grid">
           <button type="button" data-action="start-game" class="primary-button">ゲーム開始</button>
           <button type="button" data-action="open-practice" class="secondary-button">表情操作チェック</button>
-          <button type="button" data-action="set-control-expression" class="secondary-button">カメラで表情操作</button>
-          <button type="button" data-action="continue-without-camera" class="secondary-button">タップだけで遊ぶ</button>
-          <button type="button" data-action="open-how-to" class="ghost-button">あそび方</button>
-          <button type="button" data-action="open-customize" class="secondary-button">着せ替え</button>
+          <button type="button" data-action="continue-without-camera" class="secondary-button">タップ操作</button>
           <button type="button" data-action="open-gacha" class="secondary-button">ガチャ</button>
+          <button type="button" data-action="open-customize" class="secondary-button">着せ替え</button>
+          <button type="button" data-action="open-ranking" class="secondary-button">ランキング</button>
           <button type="button" data-action="open-settings" class="ghost-button">設定</button>
         </div>
 
@@ -768,7 +773,7 @@ export function createAppShell(options: AppShellOptions) {
           <span>笑顔で開始</span>
           <span>怒った顔で着せ替え</span>
           <span>驚いた顔でガチャ</span>
-          <span>タップだけでも遊べます</span>
+          <span>ランキングはGame Center準備中</span>
         </div>
       </section>
     `;
@@ -790,12 +795,14 @@ export function createAppShell(options: AppShellOptions) {
             <span>キャラ</span>
             <strong>${escapeHtml(game.charName)}</strong>
             <small>レア度: ${escapeHtml(getRarityLabel(game.charRarity))}</small>
+            <small>所持: ${game.ownedCharacterCount} / ${game.totalCharacterCount}</small>
             <button type="button" data-action="cycle-character" class="secondary-button">キャラを切り替える</button>
           </article>
           <article class="detail-card">
             <span>背景</span>
             <strong>${escapeHtml(game.bgName)}</strong>
             <small>レア度: ${escapeHtml(getRarityLabel(game.bgRarity))}</small>
+            <small>所持: ${game.ownedBackgroundCount} / ${game.totalBackgroundCount}</small>
             <button type="button" data-action="cycle-background" class="secondary-button">背景を切り替える</button>
           </article>
         </div>
@@ -893,6 +900,9 @@ export function createAppShell(options: AppShellOptions) {
           ? "達成済み"
           : "達成！"
       : game.missionProgressText;
+    const achievementLabel = game.achievementsUnlockedThisRun.length > 0
+      ? game.achievementsUnlockedThisRun.join(" / ")
+      : `${game.achievementsUnlockedCount} / ${game.achievementsTotalCount} 解除`;
 
     return `
         <div class="result-actions">
@@ -918,12 +928,20 @@ export function createAppShell(options: AppShellOptions) {
           <strong>${game.dailyBest}</strong>
         </div>
         <div>
+          <span>${game.isNewAllTimeBest ? "最高スコア更新！" : "最高スコア"}</span>
+          <strong>${game.allTimeBest}</strong>
+        </div>
+        <div>
           <span>獲得コイン</span>
           <strong>+${game.coinsEarned}</strong>
         </div>
         <div>
           <span>今日のミッション</span>
           <strong>${escapeHtml(missionLabel)}</strong>
+        </div>
+        <div>
+          <span>実績</span>
+          <strong>${escapeHtml(achievementLabel)}</strong>
         </div>
       </div>
     `;
@@ -1254,6 +1272,54 @@ export function createAppShell(options: AppShellOptions) {
     `;
   }
 
+  function getRankingHtml() {
+    const game = state.game;
+    if (!game) return "";
+
+    return `
+      <section class="modal-screen">
+        <div class="modal-card ranking-card">
+          <div class="panel-header">
+            <div>
+              <span class="eyebrow">ランキング</span>
+              <h2>ローカルランキング</h2>
+            </div>
+            <button type="button" data-action="close-overlay" class="ghost-button">閉じる</button>
+          </div>
+
+          <div class="hero-stats ranking-stats">
+            <div class="stat-pill">
+              <span>最高スコア</span>
+              <strong>${game.allTimeBest}</strong>
+            </div>
+            <div class="stat-pill">
+              <span>今日のベスト</span>
+              <strong>${game.dailyBest}</strong>
+            </div>
+            <div class="stat-pill">
+              <span>実績</span>
+              <strong>${game.achievementsUnlockedCount} / ${game.achievementsTotalCount}</strong>
+            </div>
+            <div class="stat-pill">
+              <span>コイン</span>
+              <strong>${game.coins}</strong>
+            </div>
+          </div>
+
+          <div class="expression-status">
+            <strong>Game Centerランキングは次のアップデートで対応予定です。</strong>
+            <span>Build 15ではローカル記録と実績イベントを保存し、Game Center連携を安全に接続できる形にしています。</span>
+          </div>
+
+          <div class="button-row">
+            <button type="button" data-action="start-game" class="primary-button">ゲーム開始</button>
+            <button type="button" data-action="close-overlay" class="ghost-button">閉じる</button>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   function getRecoveryHtml() {
     return `
       <section class="modal-screen">
@@ -1289,6 +1355,8 @@ export function createAppShell(options: AppShellOptions) {
         return getPrivacyHtml();
       case "settings":
         return getSettingsHtml();
+      case "ranking":
+        return getRankingHtml();
       case "recovery":
         return getRecoveryHtml();
       default:
@@ -1318,6 +1386,10 @@ export function createAppShell(options: AppShellOptions) {
             break;
           case "open-gacha":
             options.onOpenGacha();
+            break;
+          case "open-ranking":
+            options.onOpenRanking();
+            setOverlay("ranking");
             break;
           case "open-privacy":
             state.confirmResetData = false;

@@ -1,4 +1,6 @@
 import type { ControlMode, ExpressionSensitivity } from "./types";
+import { clearGameProgress } from "./achievements";
+import { clearPendingGameServiceEvents } from "./gameCenter";
 
 const ONBOARDING_KEY = "emotion-game.onboarding-complete";
 const TUTORIAL_KEY = "emotion-game.tutorial-complete";
@@ -95,6 +97,9 @@ export function clearAppStorage(): void {
     keysToRemove.forEach((key) => {
       window.localStorage.removeItem(key);
     });
+
+    clearGameProgress();
+    clearPendingGameServiceEvents();
   } catch {
     // Ignore storage failures so the app can continue.
   }

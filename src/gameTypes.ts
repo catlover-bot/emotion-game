@@ -29,6 +29,7 @@ export type PublicState = {
   score: number;
   maxCombo: number;
   feverCount: number;
+  coinsEarned: number;
 };
 
 export type Mission = {

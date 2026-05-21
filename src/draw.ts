@@ -289,6 +289,9 @@ export function drawUI(
     feverGauge: number;
     inFever: boolean;
     currentExpression: Expression;
+    controlModeLabel: string;
+    actionFeedbackText?: string | null;
+    achievementToastText?: string | null;
     missionText: string;
     trendActive?: boolean;
     trendLabel?: string;
@@ -306,6 +309,9 @@ export function drawUI(
     feverGauge,
     inFever,
     currentExpression,
+    controlModeLabel,
+    actionFeedbackText,
+    achievementToastText,
     missionText,
     trendActive,
     trendLabel,
@@ -398,13 +404,18 @@ export function drawUI(
   ctx.font = "600 12px 'Avenir Next', system-ui, sans-serif";
   ctx.fillText(missionText, sidePad + 16, h - 70);
 
-  drawGlassPanel(ctx, sidePad, topPad + 138, 210, 52, 18);
+  drawGlassPanel(ctx, sidePad, topPad + 138, 232, 66, 18);
   ctx.fillStyle = "rgba(226,232,240,0.9)";
   ctx.font = "700 12px 'Avenir Next', system-ui, sans-serif";
-  ctx.fillText("操作: 表情 / タップ", sidePad + 16, topPad + 150);
+  ctx.fillText(`操作: ${controlModeLabel}`, sidePad + 16, topPad + 150);
   ctx.fillStyle = "#ffffff";
   ctx.font = "700 15px 'Avenir Next', system-ui, sans-serif";
   ctx.fillText(`いま: ${expressionLabel(currentExpression)}`, sidePad + 16, topPad + 168);
+  if (actionFeedbackText) {
+    ctx.fillStyle = "#fed7aa";
+    ctx.font = "800 14px 'Avenir Next', system-ui, sans-serif";
+    ctx.fillText(actionFeedbackText, sidePad + 16, topPad + 186);
+  }
 
   // トレンドチャレンジ表示
   if (trendActive && trendLabel) {
@@ -442,6 +453,24 @@ export function drawUI(
       roundedRectPath(ctx, barInnerX, barInnerY, barInnerW * prog, barInnerH, 8);
       ctx.fill();
     }
+  }
+
+  if (achievementToastText) {
+    const boxW = Math.min(420, w - 48);
+    const boxH = 54;
+    const x = w / 2 - boxW / 2;
+    const y = trendActive ? 90 : 18;
+
+    drawGlassPanel(ctx, x, y, boxW, boxH, 20);
+    ctx.strokeStyle = "rgba(250,204,21,0.38)";
+    roundedRectPath(ctx, x, y, boxW, boxH, 20);
+    ctx.stroke();
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#facc15";
+    ctx.font = "800 15px 'Avenir Next', system-ui, sans-serif";
+    ctx.fillText(achievementToastText, x + boxW / 2, y + 17);
+    ctx.textAlign = "left";
   }
 
   // ガチャメッセージ／コイン獲得メッセージ（画面下中央あたり）
@@ -701,12 +730,15 @@ export function drawGameOverOverlay(
     // 追加
     dailyBest: number;
     isNewDailyRecord: boolean;
+    allTimeBest: number;
+    isNewAllTimeBest: boolean;
     coinsEarned: number;
     missionText: string;
     missionProgressText: string;
     missionCompleted: boolean;
     missionRewardCoins: number;
     missionRewardEarned: boolean;
+    achievementsUnlocked: string[];
   },
 ) {
   const { ctx, width, height } = dc;
@@ -718,12 +750,15 @@ export function drawGameOverOverlay(
     showContinueHint,
     dailyBest,
     isNewDailyRecord,
+    allTimeBest,
+    isNewAllTimeBest,
     coinsEarned,
     missionText,
     missionProgressText,
     missionCompleted,
     missionRewardCoins,
     missionRewardEarned,
+    achievementsUnlocked,
   } = params;
 
   if (!gameOver) return;
@@ -731,10 +766,14 @@ export function drawGameOverOverlay(
   const w = width();
   const h = height();
   const cardW = Math.min(460, w - 40);
-  const cardH = Math.min(216, Math.max(178, h - 170));
+  const cardH = Math.min(248, Math.max(214, h - 150));
   const cardX = w / 2 - cardW / 2;
   const cardY = Math.max(16, Math.min(34, h * 0.08));
-  const badge = isNewDailyRecord ? "今日の新記録！" : "今日のベスト";
+  const badge = isNewAllTimeBest
+    ? "最高スコア更新！"
+    : isNewDailyRecord
+      ? "今日の新記録！"
+      : "今日のベスト";
 
   ctx.fillStyle = "rgba(2,6,23,0.68)";
   ctx.fillRect(0, 0, w, h);
@@ -760,13 +799,14 @@ export function drawGameOverOverlay(
   ctx.font = "700 20px 'Avenir Next', system-ui, sans-serif";
   ctx.fillText(rank, w / 2, cardY + 88);
 
-  const summaryText = `${badge}: ${dailyBest} / 最大コンボ ×${maxCombo} / +${coinsEarned} コイン`;
+  const summaryText = `${badge}: ${isNewAllTimeBest ? allTimeBest : dailyBest} / 最大コンボ ×${maxCombo} / +${coinsEarned} コイン`;
   ctx.fillStyle = "rgba(226,232,240,0.84)";
   ctx.font = "700 13px 'Avenir Next', system-ui, sans-serif";
   ctx.fillText(summaryText, w / 2, cardY + 116);
 
   const missionY = cardY + 136;
-  drawGlassPanel(ctx, cardX + 14, missionY, cardW - 28, 52, 18);
+  const missionPanelH = achievementsUnlocked.length > 0 ? 70 : 52;
+  drawGlassPanel(ctx, cardX + 14, missionY, cardW - 28, missionPanelH, 18);
   ctx.fillStyle = missionCompleted ? "#bbf7d0" : "rgba(226,232,240,0.86)";
   ctx.font = "700 13px 'Avenir Next', system-ui, sans-serif";
   ctx.fillText(
@@ -782,6 +822,12 @@ export function drawGameOverOverlay(
   ctx.font = "600 12px 'Avenir Next', system-ui, sans-serif";
   ctx.fillText(missionProgressText, w / 2, missionY + 31);
 
+  if (achievementsUnlocked.length > 0) {
+    ctx.fillStyle = "#facc15";
+    ctx.font = "700 12px 'Avenir Next', system-ui, sans-serif";
+    ctx.fillText(`実績解除: ${achievementsUnlocked.slice(0, 2).join(" / ")}`, w / 2, missionY + 51);
+  }
+
   ctx.fillStyle = "rgba(226,232,240,0.82)";
   ctx.font = "600 12px 'Avenir Next', system-ui, sans-serif";
   ctx.fillText(
@@ -789,7 +835,7 @@ export function drawGameOverOverlay(
       ? "下のボタンで共有・リトライできます。笑顔コンティニューも使えます。"
       : "少し待つと下のボタン操作と笑顔コンティニューが使えます。",
     w / 2,
-    Math.min(h - 94, missionY + 72),
+    Math.min(h - 94, missionY + missionPanelH + 18),
   );
 
   ctx.textAlign = "left";

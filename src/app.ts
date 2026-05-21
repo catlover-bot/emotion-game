@@ -208,6 +208,9 @@ export async function startApp(startup: StartupReporter) {
       game.openGacha();
       routeExpression();
     },
+    onOpenRanking() {
+      game?.openRanking();
+    },
     onBackToTitle() {
       if (!game) return;
       pendingStartAfterTutorial = false;
@@ -241,6 +244,7 @@ export async function startApp(startup: StartupReporter) {
       pendingStartAfterTutorial = false;
       controlMode = "tap";
       saveControlMode("tap");
+      game?.setControlMode("tap");
       appShell.setControlMode("tap");
       appShell.closeOverlay();
       routeExpression();
@@ -367,6 +371,7 @@ export async function startApp(startup: StartupReporter) {
     controlMode = mode;
     saveControlMode(mode);
     appShell.setControlMode(mode);
+    game?.setControlMode(mode);
 
     if (mode === "expression" && cameraState !== "ready") {
       appShell.showCameraOverlay();
@@ -404,6 +409,7 @@ export async function startApp(startup: StartupReporter) {
     faceLoopStarted = false;
     controlMode = "tap";
     saveControlMode("tap");
+    game?.setControlMode("tap");
     appShell.setControlMode("tap");
 
     const diagnostics = createExpressionFailureDiagnostics(
@@ -500,6 +506,7 @@ export async function startApp(startup: StartupReporter) {
         stopCamera(video);
         controlMode = "tap";
         saveControlMode("tap");
+        game?.setControlMode("tap");
         appShell.setControlMode("tap");
         setCameraUi(
           "error",
@@ -525,6 +532,7 @@ export async function startApp(startup: StartupReporter) {
       });
       controlMode = "expression";
       saveControlMode("expression");
+      game?.setControlMode("expression");
       appShell.setControlMode("expression");
       setCameraUi("ready", "表情認識の準備ができました。");
     } catch (error) {
@@ -532,6 +540,7 @@ export async function startApp(startup: StartupReporter) {
       appShell.setExpression("neutral");
       controlMode = "tap";
       saveControlMode("tap");
+      game?.setControlMode("tap");
       appShell.setControlMode("tap");
       lastCameraDiagnostics = error instanceof CameraSetupError
         ? error.diagnostics
@@ -599,6 +608,7 @@ export async function startApp(startup: StartupReporter) {
 
   startup.setStage("game-creating", "ゲーム本体を準備しています…");
   game = createGame(canvas);
+  game.setControlMode(controlMode);
   bindTapToGame(canvas, game);
 
   game.subscribe((snapshot) => {
