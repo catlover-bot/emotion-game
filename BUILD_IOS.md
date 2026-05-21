@@ -11,6 +11,7 @@ npm install
 ```bash
 npm run validate:models
 npm run validate:mediapipe
+npm run validate:cosmetics:metadata
 npm run build
 ```
 
@@ -50,13 +51,16 @@ npx cap open ios
 4. `Distribute App` → `App Store Connect` → `Upload` を選びます。
 5. 自動署名を使う場合は、そのまま推奨設定で進めます。
 6. 新しい TestFlight アップロードごとに `Build` 番号を 1 つ増やしてから Archive します。
-7. `Build` 番号を変更したあとは、`npm run validate:models`、`npm run validate:mediapipe`、`npm run build`、`npx cap sync ios` を実行してから Archive します。
+7. `Build` 番号を変更したあとは、`npm run validate:models`、`npm run validate:mediapipe`、`npm run validate:cosmetics:metadata`、`npm run build`、`npx cap sync ios` を実行してから Archive します。PNG を配置済みの TestFlight / リリース候補では `npm run validate:cosmetics` も実行します。
 
 ## 8. TestFlight 用メモ
 
 - TestFlight の説明文には、表情操作とタップ操作の両対応であることを書くと分かりやすいです。
 - 審査メモには、カメラ用途が「表情でキャラクターを操作するため」であり、映像は端末内処理で保存・送信しないことを明記します。
 - App Store Connect の Privacy Nutrition Label は、実装に合わせて慎重に入力します。
+- Build 16 は expression-only navigation / gacha preview / PNG cosmetic asset polish build です。表情操作モードでは、笑顔で決定、驚いた顔で次へ、怒った顔で戻るメニュー操作を確認します。
+- Build 16 では `public/cosmetics/manifest.json` から PNG のキャラ / 背景 / アクセサリーを読み込み、ガチャ結果と着せ替え画面にプレビュー表示します。PNG が無い場合は従来の色ベース表示へ安全にフォールバックします。
+- PNG の実ファイルがまだ無い段階では `npm run validate:cosmetics:metadata` と `npm run cosmetics:missing` を使います。画像を配置したあとの TestFlight / release candidate では strict な `npm run validate:cosmetics` を通してください。
 - Build 15 は gameplay / rewards polish build です。MediaPipe 表情操作は維持しつつ、ローカル実績、今日のミッション、最高スコア、ローカルランキング画面、Game Center接続準備レイヤーを追加しています。
 - Game Center / GameKit の実装はまだ入れていません。Build 15ではローカル no-op adapter がスコア・実績イベントを安全に記録するだけです。
 - `public/mediapipe` には MediaPipe の wasm runtime と `face_landmarker.task` を同梱しています。TestFlight インストール後は CDN なし / オフラインでも起動できることを確認します。
@@ -66,6 +70,8 @@ npx cap open ios
 - 表情操作が不安定な場合でも、タイトルや設定から `タップ操作` に切り替えて最後までプレイできることを確認してください。
 - `表情操作チェック` で 笑顔 / 怒った顔 / 驚いた顔 の認識状態、confidence 表示、ホールド進捗が自然に見えることを確認してください。
 - Build 15のゲームループQAでは、開始 → プレイ → 結果 → もう一度 が素早く回れること、獲得コイン、ミッション達成、実績解除トースト、最高スコア更新が分かりやすいことを確認します。
+- Build 16の表情ナビQAでは、タイトル → 表情操作チェック → ゲーム開始 → 結果 → もう一度 / タイトルへ を、できるだけタッチせずに操作できることを確認します。メニュー操作は誤操作防止のためホールド式です。
+- Build 16のガチャQAでは、ガチャ開始、カプセル演出、レアリティ表示、アイテム名、新規 / ダブり表示、装備ボタン、もう一度回すボタンが横画面で重ならないことを確認します。
 - `ランキング` は現時点ではローカル記録画面です。タップ時に「Game Centerランキングは次のアップデートで対応予定です。」と表示されることを確認してください。
 - iPhone SE 系や小さめの横画面では、モーダル本文がスクロールでき、CTA / 結果ボタン / タッチ操作がホームインジケータやノッチに重ならないことを確認してください。
 - MediaPipe asset の確認には `npm run validate:mediapipe` を使います。`face_landmarker.task` や wasm が HTML / Git LFS pointer / 異常に小さいファイルになっていないことを確認します。
@@ -76,7 +82,50 @@ npx cap open ios
 - Game Center準備レイヤーの確認では `EMOTION_RUNNER_GAME_SERVICES` を検索します。Build 15では native GameKit へ接続せず、local adapter が `submit-score-local` / `report-achievement-local` を出します。
 - TestFlight へ再アップロードするたびに `CURRENT_PROJECT_VERSION` を増やします。
 
-## Game Center identifiers planned for Build 16
+## PNG cosmetic asset workflow
+
+PNG アイテムを追加する場合は、画像を以下のいずれかに配置し、`public/cosmetics/manifest.json` に登録します。
+
+- `public/cosmetics/characters/`
+- `public/cosmetics/backgrounds/`
+- `public/cosmetics/items/`
+
+例:
+
+```json
+{
+  "characters": [
+    {
+      "id": "cat_pink",
+      "name": "ピンクねこ",
+      "rarity": "rare",
+      "image": "/cosmetics/characters/cat_pink.png"
+    }
+  ],
+  "backgrounds": [
+    {
+      "id": "city_night",
+      "name": "ネオンシティ",
+      "rarity": "epic",
+      "image": "/cosmetics/backgrounds/city_night.png"
+    }
+  ],
+  "items": [
+    {
+      "id": "glasses_black",
+      "name": "黒ぶちメガネ",
+      "rarity": "rare",
+      "image": "/cosmetics/items/glasses_black.png"
+    }
+  ]
+}
+```
+
+登録後、PNG がまだ無い段階では `npm run validate:cosmetics:metadata` を実行します。PNG 配置後は必ず `npm run validate:cosmetics` を実行します。検証では manifest の JSON、id 重複、rarity、`/cosmetics/` 配下の PNG 参照、PNG signature、空ファイルでないことを確認します。
+
+詳細なファイル一覧と追加手順は `docs/COSMETIC_ASSETS.md` にまとめています。
+
+## Game Center identifiers planned for a future build
 
 - Leaderboard: `leaderboard.best_score`
 - Achievement: `achievement.first_play`
@@ -95,6 +144,7 @@ npx cap open ios
 ```bash
 npm run validate:models
 npm run validate:mediapipe
+npm run validate:cosmetics:metadata
 npm run build
 npx cap sync ios
 plutil -p ios/App/App/Info.plist | grep -A8 -E "UIRequiresFullScreen|UISupportedInterfaceOrientations"

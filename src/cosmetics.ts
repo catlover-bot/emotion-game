@@ -1,4 +1,8 @@
 // src/cosmetics.ts
+import {
+  getLoadedCosmeticAssets,
+  isCosmeticAssetImageAvailable,
+} from "./cosmeticAssets";
 
 // スキンのレアリティ
 export type Rarity = "common" | "rare" | "epic" | "legendary";
@@ -22,6 +26,7 @@ export type CharacterSkinDef = {
   name: string;
   rarity: Rarity;
   colors: CharacterSkinColors;
+  image?: string;
 };
 
 export type BackgroundSkinDef = {
@@ -29,14 +34,24 @@ export type BackgroundSkinDef = {
   name: string;
   rarity: Rarity;
   colors: BackgroundSkinColors;
+  image?: string;
+};
+
+export type ItemCosmeticDef = {
+  id: string;
+  name: string;
+  rarity: Rarity;
+  image?: string;
 };
 
 export type OwnedCosmetics = {
   coins: number;
   ownedCharacterSkinIds: string[];
   ownedBackgroundSkinIds: string[];
+  ownedItemIds: string[];
   equippedCharacterSkinId: string;
   equippedBackgroundSkinId: string;
+  equippedItemId: string;
 };
 
 // ==== スキン定義 ====
@@ -137,14 +152,24 @@ const BACKGROUND_SKINS: BackgroundSkinDef[] = [
   },
 ];
 
+const BUILT_IN_ITEMS: ItemCosmeticDef[] = [
+  {
+    id: "item_none",
+    name: "アクセなし",
+    rarity: "common",
+  },
+];
+
 // ==== デフォルト状態 ====
 
 const DEFAULT_OWNED: OwnedCosmetics = {
   coins: 0,
   ownedCharacterSkinIds: ["char_default"],
   ownedBackgroundSkinIds: ["bg_default"],
+  ownedItemIds: ["item_none"],
   equippedCharacterSkinId: "char_default",
   equippedBackgroundSkinId: "bg_default",
+  equippedItemId: "item_none",
 };
 
 const STORAGE_KEY = "emotionGameCosmetics";
@@ -175,14 +200,18 @@ export function loadOwnedCosmetics(): OwnedCosmetics {
     if (!parsed) return { ...DEFAULT_OWNED };
 
     // 所持スキンに存在しないIDがあればきれいにする
-    const charIds = new Set(CHARACTER_SKINS.map((s) => s.id));
-    const bgIds = new Set(BACKGROUND_SKINS.map((s) => s.id));
+    const charIds = new Set(getAllCharacterSkins().map((s) => s.id));
+    const bgIds = new Set(getAllBackgroundSkins().map((s) => s.id));
+    const itemIds = new Set(getAllItemCosmetics().map((s) => s.id));
 
     const ownedChar = parsed.ownedCharacterSkinIds.filter((id) =>
       charIds.has(id),
     );
     const ownedBg = parsed.ownedBackgroundSkinIds.filter((id) =>
       bgIds.has(id),
+    );
+    const ownedItems = (parsed.ownedItemIds ?? []).filter((id) =>
+      itemIds.has(id),
     );
 
     const equippedChar = charIds.has(parsed.equippedCharacterSkinId)
@@ -191,13 +220,18 @@ export function loadOwnedCosmetics(): OwnedCosmetics {
     const equippedBg = bgIds.has(parsed.equippedBackgroundSkinId)
       ? parsed.equippedBackgroundSkinId
       : "bg_default";
+    const equippedItem = itemIds.has(parsed.equippedItemId)
+      ? parsed.equippedItemId
+      : "item_none";
 
     return {
       coins: parsed.coins ?? 0,
       ownedCharacterSkinIds: ownedChar.length ? ownedChar : ["char_default"],
       ownedBackgroundSkinIds: ownedBg.length ? ownedBg : ["bg_default"],
+      ownedItemIds: ownedItems.length ? ownedItems : ["item_none"],
       equippedCharacterSkinId: equippedChar,
       equippedBackgroundSkinId: equippedBg,
+      equippedItemId: equippedItem,
     };
   } catch {
     return { ...DEFAULT_OWNED };
@@ -224,16 +258,69 @@ export function clearOwnedCosmetics(): void {
 
 // ==== 検索ユーティリティ ====
 
+function getManifestCharacterSkins(): CharacterSkinDef[] {
+  return getLoadedCosmeticAssets()
+    .filter((asset) => asset.kind === "character")
+    .map((asset) => ({
+      id: asset.id,
+      name: asset.name,
+      rarity: asset.rarity,
+      image: isCosmeticAssetImageAvailable(asset.id) ? asset.image : undefined,
+      colors: CHARACTER_SKINS[0].colors,
+    }));
+}
+
+function getManifestBackgroundSkins(): BackgroundSkinDef[] {
+  return getLoadedCosmeticAssets()
+    .filter((asset) => asset.kind === "background")
+    .map((asset) => ({
+      id: asset.id,
+      name: asset.name,
+      rarity: asset.rarity,
+      image: isCosmeticAssetImageAvailable(asset.id) ? asset.image : undefined,
+      colors: BACKGROUND_SKINS[0].colors,
+    }));
+}
+
+function getManifestItems(): ItemCosmeticDef[] {
+  return getLoadedCosmeticAssets()
+    .filter((asset) => asset.kind === "item")
+    .map((asset) => ({
+      id: asset.id,
+      name: asset.name,
+      rarity: asset.rarity,
+      image: isCosmeticAssetImageAvailable(asset.id) ? asset.image : undefined,
+    }));
+}
+
+export function getAllCharacterSkins(): CharacterSkinDef[] {
+  return [...CHARACTER_SKINS, ...getManifestCharacterSkins()];
+}
+
+export function getAllBackgroundSkins(): BackgroundSkinDef[] {
+  return [...BACKGROUND_SKINS, ...getManifestBackgroundSkins()];
+}
+
+export function getAllItemCosmetics(): ItemCosmeticDef[] {
+  return [...BUILT_IN_ITEMS, ...getManifestItems()];
+}
+
 export function findCharacterSkin(id: string | null | undefined): CharacterSkinDef {
   const fallback = CHARACTER_SKINS[0];
   if (!id) return fallback;
-  return CHARACTER_SKINS.find((s) => s.id === id) ?? fallback;
+  return getAllCharacterSkins().find((s) => s.id === id) ?? fallback;
 }
 
 export function findBackgroundSkin(id: string | null | undefined): BackgroundSkinDef {
   const fallback = BACKGROUND_SKINS[0];
   if (!id) return fallback;
-  return BACKGROUND_SKINS.find((s) => s.id === id) ?? fallback;
+  return getAllBackgroundSkins().find((s) => s.id === id) ?? fallback;
+}
+
+export function findItemCosmetic(id: string | null | undefined): ItemCosmeticDef {
+  const fallback = BUILT_IN_ITEMS[0];
+  if (!id) return fallback;
+  return getAllItemCosmetics().find((s) => s.id === id) ?? fallback;
 }
 
 export function getCosmeticCollectionSummary(state: OwnedCosmetics): {
@@ -241,12 +328,16 @@ export function getCosmeticCollectionSummary(state: OwnedCosmetics): {
   totalCharacterCount: number;
   ownedBackgroundCount: number;
   totalBackgroundCount: number;
+  ownedItemCount: number;
+  totalItemCount: number;
 } {
   return {
     ownedCharacterCount: state.ownedCharacterSkinIds.length,
-    totalCharacterCount: CHARACTER_SKINS.length,
+    totalCharacterCount: getAllCharacterSkins().length,
     ownedBackgroundCount: state.ownedBackgroundSkinIds.length,
-    totalBackgroundCount: BACKGROUND_SKINS.length,
+    totalBackgroundCount: getAllBackgroundSkins().length,
+    ownedItemCount: state.ownedItemIds.length,
+    totalItemCount: getAllItemCosmetics().length,
   };
 }
 
@@ -279,10 +370,11 @@ function rollRarity(): Rarity {
 }
 
 export type GachaResult = {
-  type: "character" | "background";
+  type: "character" | "background" | "item";
   id: string;
   name: string;
   rarity: Rarity;
+  image?: string;
   isNew: boolean;
 };
 
@@ -293,12 +385,23 @@ export function rollGacha(
     throw new Error("not enough coins");
   }
 
-  const kind: "character" | "background" =
-    Math.random() < 0.5 ? "character" : "background";
+  let kind = chooseByWeight<"character" | "background" | "item">([
+    { value: "character", weight: 44 },
+    { value: "background", weight: 36 },
+    { value: "item", weight: 20 },
+  ]);
   const rarity = rollRarity();
 
+  if (kind === "item" && getAllItemCosmetics().filter((item) => item.id !== "item_none").length === 0) {
+    kind = Math.random() < 0.55 ? "character" : "background";
+  }
+
   const pool =
-    kind === "character" ? CHARACTER_SKINS : BACKGROUND_SKINS;
+    kind === "character"
+      ? getAllCharacterSkins()
+      : kind === "background"
+        ? getAllBackgroundSkins()
+        : getAllItemCosmetics().filter((item) => item.id !== "item_none");
 
   let candidates = pool.filter((s) => s.rarity === rarity);
   if (candidates.length === 0) {
@@ -323,12 +426,21 @@ export function rollGacha(
     }
     next.ownedCharacterSkinIds = Array.from(already);
   } else {
-    const already = new Set(state.ownedBackgroundSkinIds);
-    if (!already.has(skin.id)) {
-      isNew = true;
-      already.add(skin.id);
+    if (kind === "background") {
+      const already = new Set(state.ownedBackgroundSkinIds);
+      if (!already.has(skin.id)) {
+        isNew = true;
+        already.add(skin.id);
+      }
+      next.ownedBackgroundSkinIds = Array.from(already);
+    } else {
+      const already = new Set(state.ownedItemIds);
+      if (!already.has(skin.id)) {
+        isNew = true;
+        already.add(skin.id);
+      }
+      next.ownedItemIds = Array.from(already);
     }
-    next.ownedBackgroundSkinIds = Array.from(already);
   }
 
   return {
@@ -338,6 +450,7 @@ export function rollGacha(
       id: skin.id,
       name: skin.name,
       rarity: skin.rarity,
+      image: skin.image,
       isNew,
     },
   };
@@ -372,5 +485,20 @@ export function cycleBackgroundSkin(state: OwnedCosmetics): OwnedCosmetics {
   return {
     ...state,
     equippedBackgroundSkinId: nextId,
+  };
+}
+
+export function cycleItemCosmetic(state: OwnedCosmetics): OwnedCosmetics {
+  const owned = state.ownedItemIds;
+  if (!owned.length) return state;
+
+  const idx = owned.indexOf(state.equippedItemId);
+  const currentIndex = idx === -1 ? 0 : idx;
+  const nextId = owned[(currentIndex + 1) % owned.length];
+
+  if (nextId === state.equippedItemId) return state;
+  return {
+    ...state,
+    equippedItemId: nextId,
   };
 }

@@ -1,0 +1,80 @@
+{
+  "characters": [
+    {
+      "id": "green_runner_face",
+      "name": "グリーンランナー",
+      "rarity": "common",
+      "image": "/cosmetics/characters/green_runner_face.png"
+    },
+    {
+      "id": "cool_night_face",
+      "name": "クールナイト",
+      "rarity": "rare",
+      "image": "/cosmetics/characters/cool_night_face.png"
+    },
+    {
+      "id": "pink_idol_face",
+      "name": "ピンクアイドル",
+      "rarity": "epic",
+      "image": "/cosmetics/characters/pink_idol_face.png"
+    },
+    {
+      "id": "cosmic_face",
+      "name": "コズミックフェイス",
+      "rarity": "legendary",
+      "image": "/cosmetics/characters/cosmic_face.png"
+    }
+  ],
+  "backgrounds": [
+    {
+      "id": "night_alley",
+      "name": "夜の路地裏",
+      "rarity": "common",
+      "image": "/cosmetics/backgrounds/night_alley.png"
+    },
+    {
+      "id": "neon_city",
+      "name": "ネオンシティ",
+      "rarity": "rare",
+      "image": "/cosmetics/backgrounds/neon_city.png"
+    },
+    {
+      "id": "sunset_beach",
+      "name": "サンセットビーチ",
+      "rarity": "epic",
+      "image": "/cosmetics/backgrounds/sunset_beach.png"
+    },
+    {
+      "id": "cosmic_galaxy",
+      "name": "コズミックギャラクシー",
+      "rarity": "legendary",
+      "image": "/cosmetics/backgrounds/cosmic_galaxy.png"
+    }
+  ],
+  "items": [
+    {
+      "id": "black_round_glasses",
+      "name": "黒ぶち丸メガネ",
+      "rarity": "rare",
+      "image": "/cosmetics/items/black_round_glasses.png"
+    },
+    {
+      "id": "jeweled_gold_crown",
+      "name": "ジュエル王冠",
+      "rarity": "legendary",
+      "image": "/cosmetics/items/jeweled_gold_crown.png"
+    },
+    {
+      "id": "pink_star_hair_clip",
+      "name": "ピンクスタークリップ",
+      "rarity": "epic",
+      "image": "/cosmetics/items/pink_star_hair_clip.png"
+    },
+    {
+      "id": "cyber_blue_visor",
+      "name": "サイバーブルーバイザー",
+      "rarity": "legendary",
+      "image": "/cosmetics/items/cyber_blue_visor.png"
+    }
+  ]
+}

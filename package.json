@@ -7,6 +7,10 @@
     "dev": "vite",
     "validate:models": "node scripts/validate_face_models.mjs",
     "validate:mediapipe": "node scripts/validate_mediapipe_assets.mjs",
+    "validate:cosmetics": "node scripts/validate_cosmetics.mjs --strict",
+    "validate:cosmetics:metadata": "node scripts/validate_cosmetics.mjs --metadata-only",
+    "cosmetics:missing": "node scripts/list_missing_cosmetics.mjs",
+    "cosmetics:import": "node scripts/import_cosmetics_from_downloads.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
