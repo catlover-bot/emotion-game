@@ -1,5 +1,6 @@
 import type { CameraDiagnostics } from "./camera";
-import type { Expression } from "./types";
+import type { ExpressionStatus } from "./face";
+import type { ControlMode, Expression, ExpressionSensitivity } from "./types";
 import type { GameAction, GameSnapshot } from "./game";
 import type { Rarity } from "./cosmetics";
 
@@ -43,6 +44,8 @@ type AppShellOptions = {
   onCloseOverlay(): void;
   onFinishTutorial(): void;
   onTouchAction(action: GameAction): void;
+  onSetControlMode(mode: ControlMode): void;
+  onSetExpressionSensitivity(sensitivity: ExpressionSensitivity): void;
   onOverlayChanged(): void;
   onResetTutorial(): void;
   onResetData(): void;
@@ -57,9 +60,13 @@ type AppShellState = {
   cameraDiagnostics: CameraDiagnostics | null;
   cameraDiagnosticsExpanded: boolean;
   expression: Expression;
+  expressionStatus: ExpressionStatus | null;
+  controlMode: ControlMode;
+  expressionSensitivity: ExpressionSensitivity;
   tutorialSeen: Record<TutorialExpression, boolean>;
   practiceMode: PracticeMode;
   practiceStep: number;
+  practiceHoldProgress: number;
   confirmResetData: boolean;
   settingsNotice: string;
   settingsDiagnosticsExpanded: boolean;
@@ -71,8 +78,8 @@ const TUTORIAL_ORDER: TutorialExpression[] = [
   "happy",
   "angry",
   "surprised",
-  "sad",
 ];
+const EXPRESSION_STATUS_RENDER_INTERVAL_MS = 180;
 
 const EXPRESSION_COPY: Record<
   TutorialExpression,
@@ -133,7 +140,18 @@ function getExpressionName(expression: Expression): string {
     case "sad":
       return "悲しい顔";
     default:
-      return "まだ認識できていません";
+      return "通常";
+  }
+}
+
+function getSensitivityName(sensitivity: ExpressionSensitivity): string {
+  switch (sensitivity) {
+    case "normal":
+      return "ふつう";
+    case "high":
+      return "高感度";
+    default:
+      return "やさしい";
   }
 }
 
@@ -158,15 +176,23 @@ function getDiagnosticStatusLabel(value: boolean): string {
   return value ? "成功" : "失敗";
 }
 
-function getControlModeCopy(cameraState: CameraUiState): {
+function getControlModeCopy(cameraState: CameraUiState, controlMode: ControlMode): {
   label: string;
   detail: string;
   className: string;
 } {
+  if (controlMode === "tap") {
+    return {
+      label: "タップ操作",
+      detail: "ジャンプ・攻撃・ブーストをボタンで操作します。",
+      className: "is-warning",
+    };
+  }
+
   if (cameraState === "ready") {
     return {
       label: "表情操作",
-      detail: "笑顔・怒った顔・驚いた顔で操作できます。タップも使えます。",
+      detail: "認識中です。タップ操作もいつでも使えます。",
       className: "is-good",
     };
   }
@@ -188,8 +214,8 @@ function getControlModeCopy(cameraState: CameraUiState): {
   }
 
   return {
-    label: "タップ操作",
-    detail: "まずはタップで遊べます。カメラを使うと表情操作も楽しめます。",
+    label: "表情操作準備中",
+    detail: "カメラを許可すると表情操作を確認できます。",
     className: "is-warning",
   };
 }
@@ -198,6 +224,7 @@ export type AppShell = ReturnType<typeof createAppShell>;
 
 export function createAppShell(options: AppShellOptions) {
   const { root } = options;
+  let lastExpressionStatusRenderAt = 0;
 
   const state: AppShellState = {
     overlay: "none",
@@ -208,9 +235,13 @@ export function createAppShell(options: AppShellOptions) {
     cameraDiagnostics: null,
     cameraDiagnosticsExpanded: false,
     expression: "neutral",
+    expressionStatus: null,
+    controlMode: "tap",
+    expressionSensitivity: "gentle",
     tutorialSeen: createEmptyTutorialSeen(),
     practiceMode: "learn",
     practiceStep: 0,
+    practiceHoldProgress: 0,
     confirmResetData: false,
     settingsNotice: "",
     settingsDiagnosticsExpanded: false,
@@ -230,6 +261,7 @@ export function createAppShell(options: AppShellOptions) {
     state.practiceMode = mode;
     state.practiceStep = 0;
     state.tutorialSeen = createEmptyTutorialSeen();
+    state.practiceHoldProgress = 0;
   }
 
   function getCurrentPracticeExpression(): TutorialExpression {
@@ -244,7 +276,36 @@ export function createAppShell(options: AppShellOptions) {
     }
 
     state.practiceStep += 1;
+    state.practiceHoldProgress = 0;
     render();
+  }
+
+  function shouldRenderExpressionStatusUpdate(previousExpression: Expression, force = false) {
+    const statusVisible =
+      state.overlay === "practice" ||
+      (state.overlay === "settings" && state.settingsDiagnosticsExpanded) ||
+      state.cameraDiagnosticsExpanded ||
+      (
+        state.game?.scene === "play" &&
+        !state.game.gameOver &&
+        state.cameraState === "ready" &&
+        state.controlMode === "expression"
+      );
+
+    if (!statusVisible) return false;
+
+    const now = performance.now();
+    const expressionChanged = previousExpression !== state.expressionStatus?.expression;
+    if (
+      force ||
+      expressionChanged ||
+      now - lastExpressionStatusRenderAt >= EXPRESSION_STATUS_RENDER_INTERVAL_MS
+    ) {
+      lastExpressionStatusRenderAt = now;
+      return true;
+    }
+
+    return false;
   }
 
   function getCameraBannerHtml() {
@@ -428,6 +489,22 @@ export function createAppShell(options: AppShellOptions) {
       })
       .join("");
 
+    const expressionStatusCard = state.expressionStatus
+      ? `
+          <div class="diagnostic-card">
+            <strong>現在の表情状態</strong>
+            <span>mode: ${escapeHtml(state.controlMode)}</span>
+            <span>last expression: ${escapeHtml(getExpressionName(state.expressionStatus.expression))}</span>
+            <span>last confidence: ${getConfidencePercent(state.expressionStatus)}%</span>
+            <span>face detected: ${getBooleanLabel(state.expressionStatus.faceDetected)}</span>
+            <span>sensitivity: ${escapeHtml(state.expressionStatus.sensitivityLabel)}</span>
+            <span>detection interval: ${state.expressionStatus.detectionIntervalMs}ms</span>
+            <span>last error.name: ${escapeHtml(state.expressionStatus.lastErrorName || "-")}</span>
+            <span>last error.message: ${escapeHtml(state.expressionStatus.lastErrorMessage || "-")}</span>
+          </div>
+        `
+      : "";
+
     const detailsHtml = state.cameraDiagnosticsExpanded
       ? `
           <div class="diagnostic-panel">
@@ -449,6 +526,7 @@ export function createAppShell(options: AppShellOptions) {
               <span>selected model candidate: ${escapeHtml(diagnostics.selectedModelCandidate || "-")}</span>
               <span>model URL: ${escapeHtml(diagnostics.modelUrl || "-")}</span>
             </div>
+            ${expressionStatusCard}
             ${noteHtml}
             ${attemptCards}
             ${modelAssetCards}
@@ -468,8 +546,127 @@ export function createAppShell(options: AppShellOptions) {
     `;
   }
 
+  function getExpressionFaceMessage(): string {
+    if (state.cameraState !== "ready") {
+      return "カメラを許可すると、ここに認識状態が表示されます";
+    }
+
+    return state.expressionStatus?.faceMessage ?? "認識中です。顔を画面の中央に入れてください";
+  }
+
+  function getConfidencePercent(status: ExpressionStatus | null): number {
+    if (!status) return 0;
+    return Math.max(0, Math.min(100, Math.round(status.confidence * 100)));
+  }
+
+  function getExpressionScoreBarsHtml(status: ExpressionStatus | null) {
+    const scores = status?.smoothedScores ?? {
+      neutral: 1,
+      happy: 0,
+      angry: 0,
+      surprised: 0,
+      sad: 0,
+    };
+    const rows: Array<{ expression: Expression; label: string }> = [
+      { expression: "happy", label: "笑顔" },
+      { expression: "angry", label: "怒った顔" },
+      { expression: "surprised", label: "驚いた顔" },
+      { expression: "neutral", label: "通常" },
+    ];
+
+    return rows
+      .map(({ expression, label }) => {
+        const value = Math.max(0, Math.min(100, Math.round((scores[expression] ?? 0) * 100)));
+        return `
+          <div class="expression-meter-row">
+            <span>${label}</span>
+            <div class="expression-meter-track"><i style="width: ${value}%"></i></div>
+            <em>${value}%</em>
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  function getExpressionStatusPanelHtml(variant: "compact" | "practice" = "compact") {
+    const status = state.expressionStatus;
+    const expressionName = getExpressionName(status?.expression ?? state.expression);
+    const confidence = getConfidencePercent(status);
+    const isReady = state.cameraState === "ready";
+    const classes = [
+      "expression-live-panel",
+      variant === "compact" ? "is-compact" : "",
+      isReady && state.controlMode === "expression" ? "is-live" : "is-muted",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    return `
+      <div class="${classes}">
+        <div class="expression-live-header">
+          <strong>${isReady && state.controlMode === "expression" ? "認識中" : "表情操作チェック"}</strong>
+          <span>${getSensitivityName(state.expressionSensitivity)}</span>
+        </div>
+        <div class="expression-live-main">
+          <span>いまの表情: <b>${expressionName}</b></span>
+          <span>操作: <b>${escapeHtml(status?.actionLabel ?? "待機")}</b></span>
+          <span>${escapeHtml(getExpressionFaceMessage())}</span>
+        </div>
+        <div class="expression-confidence">
+          <span>認識の強さ</span>
+          <div class="expression-meter-track"><i style="width: ${confidence}%"></i></div>
+          <em>${confidence}%</em>
+        </div>
+        ${variant === "practice" ? `<div class="expression-score-bars">${getExpressionScoreBarsHtml(status)}</div>` : ""}
+      </div>
+    `;
+  }
+
+  function getControlModeSelectorHtml() {
+    const expressionActive = state.controlMode === "expression";
+    const tapActive = state.controlMode === "tap";
+    return `
+      <div class="control-mode-selector" role="group" aria-label="操作モード">
+        <button
+          type="button"
+          data-action="set-control-expression"
+          class="mode-button ${expressionActive ? "is-active" : ""}"
+        >表情操作</button>
+        <button
+          type="button"
+          data-action="set-control-tap"
+          class="mode-button ${tapActive ? "is-active" : ""}"
+        >タップ操作</button>
+      </div>
+    `;
+  }
+
+  function getSensitivitySelectorHtml() {
+    const values: Array<{ value: ExpressionSensitivity; label: string }> = [
+      { value: "gentle", label: "やさしい" },
+      { value: "normal", label: "ふつう" },
+      { value: "high", label: "高感度" },
+    ];
+    return `
+      <div class="sensitivity-selector" role="group" aria-label="表情感度">
+        ${values
+          .map(
+            ({ value, label }) => `
+              <button
+                type="button"
+                data-action="set-sensitivity"
+                data-sensitivity="${value}"
+                class="mode-button ${state.expressionSensitivity === value ? "is-active" : ""}"
+              >${label}</button>
+            `,
+          )
+          .join("")}
+      </div>
+    `;
+  }
+
   function getTitleMenuHtml(game: GameSnapshot) {
-    const controlMode = getControlModeCopy(state.cameraState);
+    const controlMode = getControlModeCopy(state.cameraState, state.controlMode);
     return `
       <section class="menu-panel title-panel">
         <div class="hero-copy">
@@ -499,9 +696,12 @@ export function createAppShell(options: AppShellOptions) {
           </div>
         </div>
 
+        ${getControlModeSelectorHtml()}
+
         <div class="menu-grid title-menu-grid">
           <button type="button" data-action="start-game" class="primary-button">ゲーム開始</button>
-          <button type="button" data-action="open-camera-overlay" class="secondary-button">カメラで表情操作</button>
+          <button type="button" data-action="open-practice" class="secondary-button">表情操作チェック</button>
+          <button type="button" data-action="set-control-expression" class="secondary-button">カメラで表情操作</button>
           <button type="button" data-action="continue-without-camera" class="secondary-button">タップだけで遊ぶ</button>
           <button type="button" data-action="open-how-to" class="ghost-button">あそび方</button>
           <button type="button" data-action="open-customize" class="secondary-button">着せ替え</button>
@@ -613,6 +813,19 @@ export function createAppShell(options: AppShellOptions) {
         : "表情認識が使えないため、タップ操作で遊べます。";
 
     return `<div class="gameplay-banner">${escapeHtml(message)}</div>`;
+  }
+
+  function getGameplayExpressionStatusHtml(game: GameSnapshot) {
+    if (
+      game.scene !== "play" ||
+      game.gameOver ||
+      state.cameraState !== "ready" ||
+      state.controlMode !== "expression"
+    ) {
+      return "";
+    }
+
+    return `<div class="gameplay-expression-status">${getExpressionStatusPanelHtml("compact")}</div>`;
   }
 
   function getGameOverActionsHtml(game: GameSnapshot) {
@@ -822,7 +1035,7 @@ export function createAppShell(options: AppShellOptions) {
   function getPracticeHtml() {
     const target = getCurrentPracticeExpression();
     const copy = EXPRESSION_COPY[target];
-    const matched = state.tutorialSeen[target];
+    const matched = state.tutorialSeen[target] || state.practiceHoldProgress >= 1;
     const atLastStep = state.practiceStep >= TUTORIAL_ORDER.length - 1;
     const primaryLabel = atLastStep
       ? state.practiceMode === "start"
@@ -854,8 +1067,8 @@ export function createAppShell(options: AppShellOptions) {
         <div class="modal-card tutorial-card">
           <div class="panel-header">
             <div>
-              <span class="eyebrow">表情の練習</span>
-              <h2>表情の練習</h2>
+              <span class="eyebrow">表情操作チェック</span>
+              <h2>表情操作チェック</h2>
             </div>
             <button type="button" data-action="close-overlay" class="ghost-button">閉じる</button>
           </div>
@@ -870,11 +1083,16 @@ export function createAppShell(options: AppShellOptions) {
             <strong>${copy.label}</strong>
             <small>${copy.summary}</small>
             <em>${escapeHtml(feedback)}</em>
+            <div class="practice-hold-meter">
+              <span style="width: ${Math.round(Math.min(1, state.practiceHoldProgress) * 100)}%"></span>
+            </div>
           </article>
+
+          ${getExpressionStatusPanelHtml("practice")}
 
           <div class="expression-status">
             <strong>ねらう表情: ${copy.label}</strong>
-            <span>この表情で「${copy.action}」します。無理なときはスキップして先へ進めます。</span>
+            <span>この表情で「${copy.action}」します。うまくいかないときは、タップ操作でそのまま遊べます。</span>
           </div>
 
           <div class="button-row">
@@ -928,7 +1146,9 @@ export function createAppShell(options: AppShellOptions) {
     const diagnosticsHtml = state.settingsDiagnosticsExpanded
       ? state.cameraDiagnostics
         ? getCameraDiagnosticsHtml()
-        : `
+        : state.expressionStatus
+          ? getExpressionStatusPanelHtml("practice")
+          : `
             <div class="diagnostic-panel settings-diagnostics">
               <div class="diagnostic-card">
                 <strong>診断情報</strong>
@@ -948,6 +1168,18 @@ export function createAppShell(options: AppShellOptions) {
               <h2>設定とデータ</h2>
             </div>
             <button type="button" data-action="close-overlay" class="ghost-button">閉じる</button>
+          </div>
+
+          <div class="settings-section">
+            <strong>操作モード</strong>
+            ${getControlModeSelectorHtml()}
+            <small>表情操作が不安定なときも、タップ操作で快適に遊べます。</small>
+          </div>
+
+          <div class="settings-section">
+            <strong>表情感度</strong>
+            ${getSensitivitySelectorHtml()}
+            <small>迷ったら「やさしい」がおすすめです。反応が遅いと感じたら「高感度」を試してください。</small>
           </div>
 
           <div class="menu-grid single utility-grid">
@@ -1066,6 +1298,19 @@ export function createAppShell(options: AppShellOptions) {
           case "continue-without-camera":
             options.onContinueWithoutCamera();
             break;
+          case "set-control-expression":
+            options.onSetControlMode("expression");
+            break;
+          case "set-control-tap":
+            options.onSetControlMode("tap");
+            break;
+          case "set-sensitivity": {
+            const sensitivity = element.dataset.sensitivity;
+            if (sensitivity === "gentle" || sensitivity === "normal" || sensitivity === "high") {
+              options.onSetExpressionSensitivity(sensitivity);
+            }
+            break;
+          }
           case "open-camera-overlay":
             state.confirmResetData = false;
             state.settingsNotice = "";
@@ -1140,6 +1385,7 @@ export function createAppShell(options: AppShellOptions) {
         : "";
 
     const gameplayNotice = game ? getGameplayNoticeHtml(game) : "";
+    const gameplayExpressionStatus = game ? getGameplayExpressionStatusHtml(game) : "";
     const touchControls = game ? getTouchControlsHtml(game) : "";
     const resultActions = game ? getGameOverActionsHtml(game) : "";
 
@@ -1155,6 +1401,7 @@ export function createAppShell(options: AppShellOptions) {
           ${sceneHtml}
         </div>
         ${gameplayNotice}
+        ${gameplayExpressionStatus}
         ${touchControls}
         ${resultActions}
         ${getOverlayHtml()}
@@ -1202,9 +1449,44 @@ export function createAppShell(options: AppShellOptions) {
         const target = getCurrentPracticeExpression();
         if (expression === target) {
           state.tutorialSeen[target] = true;
+          state.practiceHoldProgress = 1;
         }
         render();
       }
+    },
+    setExpressionStatus(status: ExpressionStatus) {
+      const previousExpression = state.expressionStatus?.expression ?? state.expression;
+      state.expressionStatus = status;
+      state.expression = status.expression;
+      let practiceCompleted = false;
+
+      if (state.overlay === "practice") {
+        const target = getCurrentPracticeExpression();
+        const isTarget =
+          status.faceDetected &&
+          status.expression === target &&
+          status.confidence >= 0.12;
+        state.practiceHoldProgress = isTarget
+          ? Math.min(1, state.practiceHoldProgress + 0.34)
+          : Math.max(0, state.practiceHoldProgress - 0.18);
+
+        if (state.practiceHoldProgress >= 1) {
+          state.tutorialSeen[target] = true;
+          practiceCompleted = true;
+        }
+      }
+
+      if (shouldRenderExpressionStatusUpdate(previousExpression, practiceCompleted)) {
+        render();
+      }
+    },
+    setControlMode(mode: ControlMode) {
+      state.controlMode = mode;
+      render();
+    },
+    setExpressionSensitivity(sensitivity: ExpressionSensitivity) {
+      state.expressionSensitivity = sensitivity;
+      render();
     },
     showOnboarding() {
       setOverlay("onboarding");

@@ -304,8 +304,8 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   let dailyMissionRewardClaimed = loadDailyMissionRewardClaimed();
 
   // 表情ホールドのしきい値（フレーム数）
-  const HOLD_SHORT = 25; // 約0.4秒
-  const HOLD_LONG = 45; // 約0.75秒
+  const HOLD_SHORT = 14; // 約0.23秒。メニュー操作を待たせすぎない。
+  const HOLD_LONG = 24; // 約0.4秒。表情操作が反応したと感じやすい長さ。
 
   // シーン別の表情ホールドカウンタ
   let titleHappyTicks = 0;
@@ -849,7 +849,17 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     markSnapshotDirty();
   }
 
-  function performJump() {
+  function logExpressionAction(action: GameAction, source: "expression" | "touch") {
+    console.info("EMOTION_RUNNER_EXPR action-triggered", {
+      action,
+      source,
+      expression: currentExpression,
+      scene,
+      tick,
+    });
+  }
+
+  function performJump(source: "expression" | "touch" = "expression") {
     if (scene !== "play" || gameOver) return;
     if (!isOnGround || tick - lastHappyTick <= HAPPY_COOLDOWN) return;
 
@@ -860,9 +870,10 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     addCombo();
     addScore(80);
     spawnStar(playerX + 140, gY - 120);
+    logExpressionAction("jump", source);
   }
 
-  function performAttack() {
+  function performAttack(source: "expression" | "touch" = "expression") {
     if (scene !== "play" || gameOver) return;
     if (tick - lastAngryTick <= ANGRY_COOLDOWN) return;
 
@@ -870,11 +881,13 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     lastAngryTick = tick;
     addCombo();
     addScore(60);
+    logExpressionAction("attack", source);
   }
 
-  function triggerBoost() {
+  function triggerBoost(source: "expression" | "touch" = "touch") {
     if (scene !== "play" || gameOver) return;
     manualBoostTicks = Math.max(manualBoostTicks, 12);
+    logExpressionAction("boost", source);
   }
 
   // ===== シーン別：表情での操作ロジック =====
@@ -965,11 +978,11 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     const gY = groundY();
 
     if (currentExpression === "happy") {
-      performJump();
+      performJump("expression");
     }
 
     if (currentExpression === "angry") {
-      performAttack();
+      performAttack("expression");
     }
 
     // surprised は少しだけ前進ブースト。タップ版は短時間だけ強めに押し出す。
@@ -978,6 +991,9 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       const boostingByTouch = manualBoostTicks > 0;
       if (boostingByFace) {
         playerX += 0.65;
+        if (tick % 18 === 0) {
+          logExpressionAction("boost", "expression");
+        }
       } else if (boostingByTouch) {
         playerX += 1.0;
         manualBoostTicks -= 1;
@@ -1371,13 +1387,13 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     triggerAction(action: GameAction) {
       switch (action) {
         case "jump":
-          performJump();
+          performJump("touch");
           break;
         case "attack":
-          performAttack();
+          performAttack("touch");
           break;
         case "boost":
-          triggerBoost();
+          triggerBoost("touch");
           break;
       }
     },

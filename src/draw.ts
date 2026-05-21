@@ -1,6 +1,5 @@
 // src/draw.ts
 import type { Bomb, Star, Wave, LikeParticle } from "./gameTypes";
-import { gameOverButtons } from "./uiRects";
 import type { Expression } from "./types";
 import type {
   CharacterSkinColors,
@@ -731,12 +730,10 @@ export function drawGameOverOverlay(
 
   const w = width();
   const h = height();
-  const cardW = Math.min(520, w - 40);
-  const cardH = Math.min(300, Math.max(260, h - 118));
+  const cardW = Math.min(460, w - 40);
+  const cardH = Math.min(216, Math.max(178, h - 170));
   const cardX = w / 2 - cardW / 2;
-  const cardY = Math.max(18, h / 2 - cardH / 2 - 8);
-  const statY = cardY + 132;
-  const statW = (cardW - 24) / 4;
+  const cardY = Math.max(16, Math.min(34, h * 0.08));
   const badge = isNewDailyRecord ? "今日の新記録！" : "今日のベスト";
 
   ctx.fillStyle = "rgba(2,6,23,0.68)";
@@ -763,26 +760,13 @@ export function drawGameOverOverlay(
   ctx.font = "700 20px 'Avenir Next', system-ui, sans-serif";
   ctx.fillText(rank, w / 2, cardY + 88);
 
-  const statLabels = [
-    { label: "スコア", value: `${score}` },
-    { label: "最大コンボ", value: `×${maxCombo}` },
-    { label: badge, value: `${dailyBest}` },
-    { label: "獲得コイン", value: `+${coinsEarned}` },
-  ];
+  const summaryText = `${badge}: ${dailyBest} / 最大コンボ ×${maxCombo} / +${coinsEarned} コイン`;
+  ctx.fillStyle = "rgba(226,232,240,0.84)";
+  ctx.font = "700 13px 'Avenir Next', system-ui, sans-serif";
+  ctx.fillText(summaryText, w / 2, cardY + 116);
 
-  statLabels.forEach((stat, index) => {
-    const x = cardX + index * statW + index * 8;
-    drawGlassPanel(ctx, x, statY, statW, 64, 18);
-    ctx.fillStyle = "rgba(226,232,240,0.78)";
-    ctx.font = "600 11px 'Avenir Next', system-ui, sans-serif";
-    ctx.fillText(stat.label, x + statW / 2, statY + 10);
-    ctx.fillStyle = (index === 2 && isNewDailyRecord) || index === 3 ? "#34d399" : "#ffffff";
-    ctx.font = "700 16px 'Avenir Next', system-ui, sans-serif";
-    ctx.fillText(stat.value, x + statW / 2, statY + 32);
-  });
-
-  const missionY = statY + 78;
-  drawGlassPanel(ctx, cardX + 14, missionY, cardW - 28, 54, 18);
+  const missionY = cardY + 136;
+  drawGlassPanel(ctx, cardX + 14, missionY, cardW - 28, 52, 18);
   ctx.fillStyle = missionCompleted ? "#bbf7d0" : "rgba(226,232,240,0.86)";
   ctx.font = "700 13px 'Avenir Next', system-ui, sans-serif";
   ctx.fillText(
@@ -799,39 +783,14 @@ export function drawGameOverOverlay(
   ctx.fillText(missionProgressText, w / 2, missionY + 31);
 
   ctx.fillStyle = "rgba(226,232,240,0.82)";
-  ctx.font = "600 14px 'Avenir Next', system-ui, sans-serif";
+  ctx.font = "600 12px 'Avenir Next', system-ui, sans-serif";
   ctx.fillText(
     showContinueHint
-      ? "笑顔を続けるとコンティニューできます。下のボタン操作も使えます。"
-      : "少し待つと笑顔コンティニューとボタン操作が使えます。",
+      ? "下のボタンで共有・リトライできます。笑顔コンティニューも使えます。"
+      : "少し待つと下のボタン操作と笑顔コンティニューが使えます。",
     w / 2,
-    missionY + 68,
+    Math.min(h - 94, missionY + 72),
   );
-
-  const { share, retry, title } = gameOverButtons(w, h);
-
-  const drawBtn = (
-    rect: { x: number; y: number; w: number; h: number },
-    label: string,
-    accent: string,
-  ) => {
-    roundedRectPath(ctx, rect.x, rect.y, rect.w, rect.h, 18);
-    ctx.fillStyle = "rgba(7,18,34,0.84)";
-    ctx.fill();
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "700 18px 'Avenir Next', system-ui, sans-serif";
-    ctx.textBaseline = "middle";
-    ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2);
-    ctx.textBaseline = "top";
-  };
-
-  drawBtn(share, "共有", "rgba(56,189,248,0.45)");
-  drawBtn(retry, "もう一度", "rgba(249,115,22,0.46)");
-  drawBtn(title, "タイトルへ", "rgba(226,232,240,0.26)");
 
   ctx.textAlign = "left";
 }

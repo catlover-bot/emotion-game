@@ -7,7 +7,7 @@ import type {
   ModelAssetCheck,
   ModelCandidateDiagnostics,
 } from "./camera";
-import type { Expression } from "./types";
+import type { Expression, ExpressionSensitivity } from "./types";
 
 type FaceApiModule = typeof import("face-api.js");
 type ModelAssetResponseType = "text" | "arraybuffer";
@@ -21,6 +21,44 @@ type XhrAssetLoad = {
   byteLength: number;
   contentType: string;
   body: string | ArrayBuffer;
+};
+type ExpressionScoreMap = Record<Expression, number>;
+type SensitivitySettings = {
+  label: string;
+  alpha: number;
+  intervalMs: number;
+  inputSize: number;
+  scoreThreshold: number;
+  happyMin: number;
+  happyMargin: number;
+  angryMin: number;
+  surprisedMin: number;
+  sadMin: number;
+  neutralMin: number;
+  neutralStableDetections: number;
+};
+
+export type ExpressionStatus = {
+  expression: Expression;
+  confidence: number;
+  faceDetected: boolean;
+  faceMessage: string;
+  actionLabel: string;
+  rawScores: ExpressionScoreMap;
+  smoothedScores: ExpressionScoreMap;
+  consecutiveDetections: number;
+  detectionIntervalMs: number;
+  inputSize: number;
+  scoreThreshold: number;
+  sensitivity: ExpressionSensitivity;
+  sensitivityLabel: string;
+  lastErrorName: string;
+  lastErrorMessage: string;
+};
+
+export type StartExpressionLoopOptions = {
+  sensitivity: ExpressionSensitivity;
+  onStatus?: (status: ExpressionStatus) => void;
 };
 
 const MODEL_ASSETS: ModelAssetDefinition[] = [
@@ -54,6 +92,51 @@ const MODEL_BASE_CANDIDATES = [
   new URL("./models/", document.baseURI).toString(),
   new URL("./models/", window.location.href).toString(),
 ];
+
+const SENSITIVITY_SETTINGS: Record<ExpressionSensitivity, SensitivitySettings> = {
+  gentle: {
+    label: "やさしい",
+    alpha: 0.42,
+    intervalMs: 100,
+    inputSize: 224,
+    scoreThreshold: 0.3,
+    happyMin: 0.08,
+    happyMargin: 0.05,
+    angryMin: 0.12,
+    surprisedMin: 0.14,
+    sadMin: 0.16,
+    neutralMin: 0.78,
+    neutralStableDetections: 2,
+  },
+  normal: {
+    label: "ふつう",
+    alpha: 0.34,
+    intervalMs: 115,
+    inputSize: 224,
+    scoreThreshold: 0.35,
+    happyMin: 0.12,
+    happyMargin: 0.03,
+    angryMin: 0.16,
+    surprisedMin: 0.2,
+    sadMin: 0.18,
+    neutralMin: 0.72,
+    neutralStableDetections: 2,
+  },
+  high: {
+    label: "高感度",
+    alpha: 0.52,
+    intervalMs: 80,
+    inputSize: 224,
+    scoreThreshold: 0.28,
+    happyMin: 0.06,
+    happyMargin: 0.07,
+    angryMin: 0.1,
+    surprisedMin: 0.12,
+    sadMin: 0.13,
+    neutralMin: 0.82,
+    neutralStableDetections: 1,
+  },
+};
 
 let faceApiModule: FaceApiModule | null = null;
 let faceApiPromise: Promise<FaceApiModule> | null = null;
@@ -178,6 +261,57 @@ function logExpressionError(message: string, payload?: unknown) {
     return;
   }
   console.error(`EMOTION_RUNNER_EXPR ${message}`, payload);
+}
+
+function cloneScores(scores: ExpressionScoreMap): ExpressionScoreMap {
+  return {
+    neutral: scores.neutral,
+    happy: scores.happy,
+    angry: scores.angry,
+    surprised: scores.surprised,
+    sad: scores.sad,
+  };
+}
+
+function getActionLabel(expression: Expression): string {
+  switch (expression) {
+    case "happy":
+      return "ジャンプ";
+    case "angry":
+      return "攻撃";
+    case "surprised":
+      return "ブースト";
+    case "sad":
+      return "戻る / 調整";
+    default:
+      return "待機";
+  }
+}
+
+function getFaceMessage(faceDetected: boolean, confidence: number): string {
+  if (!faceDetected) {
+    return "顔を中央に入れてください";
+  }
+
+  if (confidence < 0.18) {
+    return "少し明るい場所で試してください";
+  }
+
+  return "顔を認識しています";
+}
+
+function emitExpressionStatus(
+  onStatus: ((status: ExpressionStatus) => void) | undefined,
+  status: ExpressionStatus,
+) {
+  try {
+    onStatus?.(status);
+  } catch (error) {
+    logExpressionError("status-callback-failed", {
+      errorName: getErrorName(error),
+      errorMessage: getErrorMessage(error),
+    });
+  }
 }
 
 function getRawFetch(): typeof fetch {
@@ -794,8 +928,11 @@ export function startExpressionLoop(
   video: HTMLVideoElement,
   onExpression: (exp: Expression) => void,
   onRuntimeError?: (error: unknown, diagnostics: ExpressionRuntimeDiagnostic[]) => void,
+  optionsConfig?: StartExpressionLoopOptions,
 ): { stop(): void; getDiagnostics(): ExpressionRuntimeDiagnostic[] } {
   const diagnostics: ExpressionRuntimeDiagnostic[] = [];
+  const sensitivity = optionsConfig?.sensitivity ?? "gentle";
+  const settings = SENSITIVITY_SETTINGS[sensitivity] ?? SENSITIVITY_SETTINGS.gentle;
 
   const createDiagnostic = (
     stage: string,
@@ -826,6 +963,10 @@ export function startExpressionLoop(
     videoReadyState: video.readyState,
     videoWidth: video.videoWidth,
     videoHeight: video.videoHeight,
+    sensitivity,
+    inputSize: settings.inputSize,
+    scoreThreshold: settings.scoreThreshold,
+    detectionIntervalMs: settings.intervalMs,
   });
   record("loop-start", true);
 
@@ -853,35 +994,38 @@ export function startExpressionLoop(
   let timerId = 0;
 
   // スムージング用スコア
-  const smoothed: Record<Expression, number> = {
+  const smoothed: ExpressionScoreMap = {
     neutral: 0.7,
     happy: 0.1,
     angry: 0.05,
     surprised: 0.05,
     sad: 0.1,
   };
+  const emptyRawScores: ExpressionScoreMap = {
+    neutral: 1,
+    happy: 0,
+    angry: 0,
+    surprised: 0,
+    sad: 0,
+  };
 
   let lastExp: Expression = "neutral";
-
-  // α を少し小さくして「ブレにくく・でも反応はそれなりに」
-  const ALPHA = 0.25;
-
-  // ★ 判定をかなりゆるくした値
-  const HAPPY_MIN = 0.12; // ちょっと口角上がっただけでも入りやすく
-  const HAPPY_MARGIN = 0.02;
-  const ANGRY_MIN = 0.16;
-  const SURPRISED_MIN = 0.20;
-  const SAD_MIN = 0.18;
+  let pendingExp: Expression = "neutral";
+  let pendingCount = 0;
 
   let options: InstanceType<typeof faceapi.TinyFaceDetectorOptions>;
 
   try {
     options = new faceapi.TinyFaceDetectorOptions({
-      inputSize: 224,
-      scoreThreshold: 0.35, // 検出自体も少し甘め
+      inputSize: settings.inputSize,
+      scoreThreshold: settings.scoreThreshold,
     });
     record("tiny-face-detector-options-created", true);
-    logExpressionInfo("tiny-face-detector-options-created");
+    logExpressionInfo("tiny-face-detector-options-created", {
+      inputSize: settings.inputSize,
+      scoreThreshold: settings.scoreThreshold,
+      sensitivity,
+    });
   } catch (error) {
     record("tiny-face-detector-options-failed", false, error);
     logExpressionError("tiny-face-detector-options-failed", {
@@ -927,9 +1071,17 @@ export function startExpressionLoop(
         const exps = result.expressions;
 
         // 1) 生のスコアをスムージング
+        const rawScores: ExpressionScoreMap = {
+          neutral: exps.neutral ?? 0,
+          happy: exps.happy ?? 0,
+          angry: exps.angry ?? 0,
+          surprised: exps.surprised ?? 0,
+          sad: exps.sad ?? 0,
+        };
+
         (Object.keys(smoothed) as Expression[]).forEach((k) => {
           const raw = exps[k] ?? 0;
-          smoothed[k] = (1 - ALPHA) * smoothed[k] + ALPHA * raw;
+          smoothed[k] = (1 - settings.alpha) * smoothed[k] + settings.alpha * raw;
         });
 
         // 2) まず最大のものを取る
@@ -948,36 +1100,111 @@ export function startExpressionLoop(
 
         // 3) 「甘やかし」ルール
         //   - happy / angry / surprised / sad を優先的に取りやすく
-        if (s.happy > HAPPY_MIN && s.happy + HAPPY_MARGIN >= s.neutral) {
+        if (s.happy > settings.happyMin && s.happy + settings.happyMargin >= s.neutral) {
           best = "happy";
-        } else if (s.angry > ANGRY_MIN && s.angry + 0.03 >= s.neutral) {
+        } else if (s.angry > settings.angryMin && s.angry + 0.04 >= s.neutral) {
           best = "angry";
-        } else if (s.surprised > SURPRISED_MIN && s.surprised >= s.neutral) {
+        } else if (s.surprised > settings.surprisedMin && s.surprised + 0.02 >= s.neutral) {
           best = "surprised";
-        } else if (s.sad > SAD_MIN && s.sad >= s.neutral) {
+        } else if (s.sad > settings.sadMin && s.sad >= s.neutral) {
           best = "sad";
-        } else if (s.neutral > 0.7) {
+        } else if (s.neutral > settings.neutralMin) {
           best = "neutral";
         }
 
-        // 4) 直前と違うときだけ通知（ピカピカ変わらないように）
-        if (best !== lastExp) {
-          lastExp = best;
+        if (best === pendingExp) {
+          pendingCount += 1;
+        } else {
+          pendingExp = best;
+          pendingCount = 1;
+        }
+
+        const requiredStableCount = best === "neutral" ? settings.neutralStableDetections : 1;
+        const nextExpression = pendingCount >= requiredStableCount ? best : lastExp;
+        const confidence = Math.max(0, Math.min(1, smoothed[nextExpression] ?? bestVal));
+        const expressionChanged = nextExpression !== lastExp;
+
+        emitExpressionStatus(optionsConfig?.onStatus, {
+          expression: nextExpression,
+          confidence,
+          faceDetected: true,
+          faceMessage: getFaceMessage(true, confidence),
+          actionLabel: getActionLabel(nextExpression),
+          rawScores,
+          smoothedScores: cloneScores(smoothed),
+          consecutiveDetections: detectCount,
+          detectionIntervalMs: settings.intervalMs,
+          inputSize: settings.inputSize,
+          scoreThreshold: settings.scoreThreshold,
+          sensitivity,
+          sensitivityLabel: settings.label,
+          lastErrorName: "",
+          lastErrorMessage: "",
+        });
+
+        if (detectCount === 1 || expressionChanged || detectCount % 12 === 0) {
           logExpressionInfo("expression-change", {
-            expression: best,
-            smoothed: { ...smoothed },
+            selectedExpression: nextExpression,
+            candidateExpression: best,
+            confidence,
+            faceDetected: true,
+            rawScores,
+            smoothedScores: cloneScores(smoothed),
+            detectionIntervalMs: settings.intervalMs,
+            inputSize: settings.inputSize,
+            scoreThreshold: settings.scoreThreshold,
+            sensitivity,
+            consecutiveDetections: detectCount,
+            actionCandidate: getActionLabel(nextExpression),
+            actionTriggered: expressionChanged && nextExpression !== "neutral",
           });
-          onExpression(best);
+        }
+
+        // 4) 直前と違うときだけ通知（ピカピカ変わらないように）
+        if (expressionChanged) {
+          lastExp = nextExpression;
+          onExpression(nextExpression);
         }
       } else {
         // 顔が映ってないときはゆっくり neutral に寄せる
-        smoothed.neutral = (1 - ALPHA) * smoothed.neutral + ALPHA * 1.0;
+        smoothed.neutral = (1 - settings.alpha) * smoothed.neutral + settings.alpha * 1.0;
 
         const fallback: Expression = "neutral";
+        pendingExp = fallback;
+        pendingCount += 1;
+        const nextExpression = pendingCount >= settings.neutralStableDetections ? fallback : lastExp;
+        const expressionChanged = nextExpression !== lastExp;
+
+        emitExpressionStatus(optionsConfig?.onStatus, {
+          expression: nextExpression,
+          confidence: smoothed.neutral,
+          faceDetected: false,
+          faceMessage: getFaceMessage(false, smoothed.neutral),
+          actionLabel: getActionLabel(nextExpression),
+          rawScores: cloneScores(emptyRawScores),
+          smoothedScores: cloneScores(smoothed),
+          consecutiveDetections: detectCount,
+          detectionIntervalMs: settings.intervalMs,
+          inputSize: settings.inputSize,
+          scoreThreshold: settings.scoreThreshold,
+          sensitivity,
+          sensitivityLabel: settings.label,
+          lastErrorName: "",
+          lastErrorMessage: "",
+        });
+
         if (fallback !== lastExp) {
-          lastExp = fallback;
-          logExpressionInfo("no-face-detected", { fallback });
-          onExpression(fallback);
+          if (expressionChanged) {
+            lastExp = nextExpression;
+            onExpression(nextExpression);
+          }
+          logExpressionInfo("no-face-detected", {
+            fallback,
+            faceDetected: false,
+            smoothedScores: cloneScores(smoothed),
+            detectionIntervalMs: settings.intervalMs,
+            sensitivity,
+          });
         }
       }
     } catch (error) {
@@ -990,16 +1217,37 @@ export function startExpressionLoop(
         videoReadyState: video.readyState,
         videoWidth: video.videoWidth,
         videoHeight: video.videoHeight,
+        detectionIntervalMs: settings.intervalMs,
+        inputSize: settings.inputSize,
+        scoreThreshold: settings.scoreThreshold,
+        sensitivity,
+      });
+      emitExpressionStatus(optionsConfig?.onStatus, {
+        expression: "neutral",
+        confidence: 0,
+        faceDetected: false,
+        faceMessage: "表情認識を停止しました",
+        actionLabel: "待機",
+        rawScores: cloneScores(emptyRawScores),
+        smoothedScores: cloneScores(smoothed),
+        consecutiveDetections: detectCount,
+        detectionIntervalMs: settings.intervalMs,
+        inputSize: settings.inputSize,
+        scoreThreshold: settings.scoreThreshold,
+        sensitivity,
+        sensitivityLabel: settings.label,
+        lastErrorName: getErrorName(error),
+        lastErrorMessage: getErrorMessage(error),
       });
       stopped = true;
       onRuntimeError?.(error, diagnostics.map((entry) => ({ ...entry })));
       return;
     }
 
-    // だいたい 6〜8fps 程度
+    // iPhone でも軽く保ちつつ、操作感が遅れすぎない間隔にする。
     timerId = window.setTimeout(() => {
       void loop();
-    }, 130);
+    }, settings.intervalMs);
   }
 
   void loop();

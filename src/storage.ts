@@ -1,5 +1,9 @@
+import type { ControlMode, ExpressionSensitivity } from "./types";
+
 const ONBOARDING_KEY = "emotion-game.onboarding-complete";
 const TUTORIAL_KEY = "emotion-game.tutorial-complete";
+const CONTROL_MODE_KEY = "emotion-game.control-mode";
+const EXPRESSION_SENSITIVITY_KEY = "emotion-game.expression-sensitivity";
 export const DAILY_BEST_PREFIX = "emotion_game_daily_best_";
 export const DAILY_MISSION_PREFIX = "emotion_game_daily_mission_reward_";
 
@@ -39,10 +43,46 @@ export function resetTutorialComplete(): void {
   saveFlag(TUTORIAL_KEY, false);
 }
 
+export function loadControlMode(): ControlMode {
+  try {
+    return window.localStorage.getItem(CONTROL_MODE_KEY) === "expression" ? "expression" : "tap";
+  } catch {
+    return "tap";
+  }
+}
+
+export function saveControlMode(value: ControlMode): void {
+  try {
+    window.localStorage.setItem(CONTROL_MODE_KEY, value);
+  } catch {
+    // Ignore storage failures so the game still works in private browsing.
+  }
+}
+
+export function loadExpressionSensitivity(): ExpressionSensitivity {
+  try {
+    const value = window.localStorage.getItem(EXPRESSION_SENSITIVITY_KEY);
+    if (value === "normal" || value === "high") return value;
+    return "gentle";
+  } catch {
+    return "gentle";
+  }
+}
+
+export function saveExpressionSensitivity(value: ExpressionSensitivity): void {
+  try {
+    window.localStorage.setItem(EXPRESSION_SENSITIVITY_KEY, value);
+  } catch {
+    // Ignore storage failures so the game still works in private browsing.
+  }
+}
+
 export function clearAppStorage(): void {
   try {
     window.localStorage.removeItem(ONBOARDING_KEY);
     window.localStorage.removeItem(TUTORIAL_KEY);
+    window.localStorage.removeItem(CONTROL_MODE_KEY);
+    window.localStorage.removeItem(EXPRESSION_SENSITIVITY_KEY);
 
     const keysToRemove: string[] = [];
     for (let i = 0; i < window.localStorage.length; i += 1) {

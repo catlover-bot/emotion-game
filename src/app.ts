@@ -6,6 +6,7 @@ import { createGame, type Game } from "./game";
 import {
   ExpressionLoopSetupError,
   FaceModelSetupError,
+  type ExpressionStatus,
   getFaceModelBaseUrl,
   setupFaceModels,
   startExpressionLoop,
@@ -13,13 +14,17 @@ import {
 import { createAppShell, type CameraUiState } from "./appShell";
 import {
   clearAppStorage,
+  loadControlMode,
+  loadExpressionSensitivity,
   loadOnboardingComplete,
   loadTutorialComplete,
   resetTutorialComplete,
+  saveControlMode,
+  saveExpressionSensitivity,
   saveOnboardingComplete,
   saveTutorialComplete,
 } from "./storage";
-import type { Expression } from "./types";
+import type { ControlMode, Expression, ExpressionSensitivity } from "./types";
 
 export type StartupReporter = {
   setStage(stage: string, detail?: string): void;
@@ -161,6 +166,8 @@ export async function startApp(startup: StartupReporter) {
   let onboardingComplete = loadOnboardingComplete();
   let tutorialComplete = loadTutorialComplete();
   let currentExpression: Expression = "neutral";
+  let controlMode: ControlMode = loadControlMode();
+  let expressionSensitivity: ExpressionSensitivity = loadExpressionSensitivity();
   let cameraState: CameraUiState = "idle";
   let lastCameraDiagnostics: CameraDiagnostics | null = null;
   let faceLoopStarted = false;
@@ -232,6 +239,9 @@ export async function startApp(startup: StartupReporter) {
     onContinueWithoutCamera() {
       finishOnboarding();
       pendingStartAfterTutorial = false;
+      controlMode = "tap";
+      saveControlMode("tap");
+      appShell.setControlMode("tap");
       appShell.closeOverlay();
       routeExpression();
     },
@@ -256,6 +266,12 @@ export async function startApp(startup: StartupReporter) {
     onTouchAction(action) {
       game?.triggerAction(action);
     },
+    onSetControlMode(mode) {
+      setControlMode(mode);
+    },
+    onSetExpressionSensitivity(sensitivity) {
+      setExpressionSensitivity(sensitivity);
+    },
     onOverlayChanged() {
       routeExpression();
     },
@@ -269,6 +285,8 @@ export async function startApp(startup: StartupReporter) {
       window.location.reload();
     },
   });
+  appShell.setControlMode(controlMode);
+  appShell.setExpressionSensitivity(expressionSensitivity);
 
   function hasMeaningfulUiContent() {
     const rect = uiRoot.getBoundingClientRect();
@@ -289,7 +307,13 @@ export async function startApp(startup: StartupReporter) {
   }
 
   function routeExpression() {
-    game?.setExpression(appShell.isBlockingGameInput() ? "neutral" : currentExpression);
+    const expressionForGame =
+      controlMode === "expression" &&
+      cameraState === "ready" &&
+      !appShell.isBlockingGameInput()
+        ? currentExpression
+        : "neutral";
+    game?.setExpression(expressionForGame);
   }
 
   function notifyShellVisible(detail: string) {
@@ -339,6 +363,35 @@ export async function startApp(startup: StartupReporter) {
     routeExpression();
   }
 
+  function setControlMode(mode: ControlMode) {
+    controlMode = mode;
+    saveControlMode(mode);
+    appShell.setControlMode(mode);
+
+    if (mode === "expression" && cameraState !== "ready") {
+      appShell.showCameraOverlay();
+    }
+
+    routeExpression();
+  }
+
+  function setExpressionSensitivity(sensitivity: ExpressionSensitivity) {
+    expressionSensitivity = sensitivity;
+    saveExpressionSensitivity(sensitivity);
+    appShell.setExpressionSensitivity(sensitivity);
+
+    if (cameraState === "ready") {
+      stopFaceLoop?.();
+      stopFaceLoop = null;
+      faceLoopStarted = false;
+      startFaceLoopSafely();
+    }
+  }
+
+  function handleExpressionStatus(status: ExpressionStatus) {
+    appShell.setExpressionStatus(status);
+  }
+
   function markExpressionUnavailable(
     error: unknown,
     expressionDiagnostics: ExpressionRuntimeDiagnostic[],
@@ -349,6 +402,9 @@ export async function startApp(startup: StartupReporter) {
     stopFaceLoop?.();
     stopFaceLoop = null;
     faceLoopStarted = false;
+    controlMode = "tap";
+    saveControlMode("tap");
+    appShell.setControlMode("tap");
 
     const diagnostics = createExpressionFailureDiagnostics(
       lastCameraDiagnostics,
@@ -394,6 +450,10 @@ export async function startApp(startup: StartupReporter) {
         (error, diagnostics) => {
           markExpressionUnavailable(error, diagnostics);
         },
+        {
+          sensitivity: expressionSensitivity,
+          onStatus: handleExpressionStatus,
+        },
       );
       stopFaceLoop = controller.stop;
       faceLoopStarted = true;
@@ -438,6 +498,9 @@ export async function startApp(startup: StartupReporter) {
         });
         startup.setStage("models-failed", "表情認識モデルを読み込めませんでした。");
         stopCamera(video);
+        controlMode = "tap";
+        saveControlMode("tap");
+        appShell.setControlMode("tap");
         setCameraUi(
           "error",
           "カメラは起動しましたが、表情認識モデルの読み込みに失敗しました。いまはタップ操作で遊べます。",
@@ -460,10 +523,16 @@ export async function startApp(startup: StartupReporter) {
         videoWidth: video.videoWidth,
         videoHeight: video.videoHeight,
       });
+      controlMode = "expression";
+      saveControlMode("expression");
+      appShell.setControlMode("expression");
       setCameraUi("ready", "表情認識の準備ができました。");
     } catch (error) {
       currentExpression = "neutral";
       appShell.setExpression("neutral");
+      controlMode = "tap";
+      saveControlMode("tap");
+      appShell.setControlMode("tap");
       lastCameraDiagnostics = error instanceof CameraSetupError
         ? error.diagnostics
         : createRuntimeDiagnostics(video);

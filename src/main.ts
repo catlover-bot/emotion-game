@@ -12,7 +12,7 @@ declare global {
 }
 
 const APP_NAME = "表情ランナー";
-const DIAGNOSTIC_BUILD = window.__EMOTION_RUNNER_BUILD__ ?? "12";
+const DIAGNOSTIC_BUILD = window.__EMOTION_RUNNER_BUILD__ ?? "13";
 
 const STAMP_BASE_STYLE = `
   position: fixed;
