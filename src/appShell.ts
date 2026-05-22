@@ -38,7 +38,9 @@ type AppShellOptions = {
   onBackToTitle(): void;
   onCycleCharacter(): void;
   onCycleBackground(): void;
+  onCycleItem(): void;
   onRollGacha(): void;
+  onEquipLastGachaResult(): void;
   onShare(): void;
   onRetryGame(): void;
   onEnableCamera(): void;
@@ -72,6 +74,12 @@ type AppShellState = {
   confirmResetData: boolean;
   settingsNotice: string;
   settingsDiagnosticsExpanded: boolean;
+  expressionNavFocusIndex: number;
+  expressionNavExpression: Expression | null;
+  expressionNavHoldStartedAt: number;
+  expressionNavHoldProgress: number;
+  expressionNavNotice: string;
+  expressionNavLastTriggeredAt: number;
 };
 
 const APP_NAME = "表情ランナー";
@@ -82,6 +90,10 @@ const TUTORIAL_ORDER: TutorialExpression[] = [
   "surprised",
 ];
 const EXPRESSION_STATUS_RENDER_INTERVAL_MS = 180;
+const NAV_CONFIRM_HOLD_MS = 700;
+const NAV_NEXT_HOLD_MS = 500;
+const NAV_BACK_HOLD_MS = 500;
+const NAV_TRIGGER_COOLDOWN_MS = 420;
 
 const EXPRESSION_COPY: Record<
   TutorialExpression,
@@ -183,6 +195,27 @@ function getRarityLabel(rarity: Rarity): string {
   }
 }
 
+function getRarityClass(rarity: Rarity): string {
+  return `rarity-${rarity}`;
+}
+
+function getCosmeticPreviewHtml(params: {
+  image: string | null;
+  name: string;
+  rarity: Rarity;
+  variant: "character" | "background" | "item";
+}) {
+  const imageHtml = params.image
+    ? `<img src="${escapeHtml(params.image)}" alt="${escapeHtml(params.name)}" loading="lazy" />`
+    : `<span class="preview-fallback">${params.variant === "background" ? "景" : params.variant === "item" ? "★" : "顔"}</span>`;
+
+  return `
+    <div class="cosmetic-preview ${params.variant} ${getRarityClass(params.rarity)}">
+      ${imageHtml}
+    </div>
+  `;
+}
+
 function getBooleanLabel(value: boolean): string {
   return value ? "true" : "false";
 }
@@ -260,11 +293,150 @@ export function createAppShell(options: AppShellOptions) {
     confirmResetData: false,
     settingsNotice: "",
     settingsDiagnosticsExpanded: false,
+    expressionNavFocusIndex: 0,
+    expressionNavExpression: null,
+    expressionNavHoldStartedAt: 0,
+    expressionNavHoldProgress: 0,
+    expressionNavNotice: "笑顔で決定 / 驚いた顔で次へ / 怒った顔で戻る",
+    expressionNavLastTriggeredAt: 0,
   };
 
   function renderAndNotify() {
     render();
     options.onOverlayChanged();
+  }
+
+  function isExpressionNavigationActive() {
+    const game = state.game;
+    if (state.cameraState !== "ready" || state.controlMode !== "expression") return false;
+    if (!game) return state.overlay !== "none";
+    if (game.scene === "play" && !game.gameOver && state.overlay === "none") return false;
+    return true;
+  }
+
+  function getFocusableElements(): HTMLButtonElement[] {
+    return Array.from(root.querySelectorAll<HTMLButtonElement>("button[data-action]"))
+      .filter((button) => {
+        if (button.disabled) return false;
+        if (button.closest(".touch-controls")) return false;
+        if (button.offsetParent === null) return false;
+        return true;
+      });
+  }
+
+  function applyExpressionFocus() {
+    const elements = getFocusableElements();
+    root.querySelectorAll(".is-face-focused").forEach((element) => {
+      element.classList.remove("is-face-focused");
+      (element as HTMLElement).style.removeProperty("--face-progress");
+    });
+
+    if (!isExpressionNavigationActive() || elements.length === 0) {
+      return;
+    }
+
+    state.expressionNavFocusIndex = Math.max(
+      0,
+      Math.min(state.expressionNavFocusIndex, elements.length - 1),
+    );
+    const focused = elements[state.expressionNavFocusIndex];
+    if (!focused) return;
+
+    focused.classList.add("is-face-focused");
+    focused.style.setProperty("--face-progress", String(state.expressionNavHoldProgress));
+  }
+
+  function clickFocusedElement() {
+    const elements = getFocusableElements();
+    const focused = elements[state.expressionNavFocusIndex];
+    focused?.click();
+  }
+
+  function clickBackElement() {
+    const elements = getFocusableElements();
+    const preferredActions = [
+      "back-to-title",
+      "close-overlay",
+      "cancel-reset-data",
+      "continue-without-camera",
+    ];
+
+    const target = elements.find((element) =>
+      preferredActions.includes(element.dataset.action ?? ""),
+    );
+
+    if (target) {
+      target.click();
+      return;
+    }
+
+    clickFocusedElement();
+  }
+
+  function moveExpressionFocus(delta: number) {
+    const elements = getFocusableElements();
+    if (elements.length === 0) return;
+    state.expressionNavFocusIndex =
+      (state.expressionNavFocusIndex + delta + elements.length) % elements.length;
+    state.expressionNavNotice = "選択中のボタンを移動しました";
+    state.expressionNavHoldProgress = 0;
+    applyExpressionFocus();
+  }
+
+  function resetExpressionNavigationHold(expression: Expression | null = null) {
+    state.expressionNavExpression = expression;
+    state.expressionNavHoldStartedAt = expression ? performance.now() : 0;
+    state.expressionNavHoldProgress = 0;
+  }
+
+  function updateExpressionNavigation(status: ExpressionStatus) {
+    if (!isExpressionNavigationActive()) {
+      resetExpressionNavigationHold(null);
+      return;
+    }
+
+    const now = performance.now();
+    const expression = status.expression;
+    const actionable = expression === "happy" || expression === "surprised" || expression === "angry";
+    if (!actionable || !status.faceDetected) {
+      resetExpressionNavigationHold(null);
+      state.expressionNavNotice = "笑顔で決定 / 驚いた顔で次へ / 怒った顔で戻る";
+      return;
+    }
+
+    if (state.expressionNavExpression !== expression) {
+      resetExpressionNavigationHold(expression);
+    }
+
+    const holdMs =
+      expression === "happy"
+        ? NAV_CONFIRM_HOLD_MS
+        : expression === "surprised"
+          ? NAV_NEXT_HOLD_MS
+          : NAV_BACK_HOLD_MS;
+    state.expressionNavHoldProgress = Math.max(
+      0,
+      Math.min(1, (now - state.expressionNavHoldStartedAt) / holdMs),
+    );
+
+    if (now - state.expressionNavLastTriggeredAt < NAV_TRIGGER_COOLDOWN_MS) {
+      return;
+    }
+
+    if (state.expressionNavHoldProgress < 1) return;
+
+    state.expressionNavLastTriggeredAt = now;
+    state.expressionNavHoldProgress = 0;
+    if (expression === "happy") {
+      state.expressionNavNotice = "笑顔で決定しました";
+      clickFocusedElement();
+    } else if (expression === "surprised") {
+      moveExpressionFocus(1);
+    } else {
+      state.expressionNavNotice = "戻ります";
+      clickBackElement();
+    }
+    resetExpressionNavigationHold(expression);
   }
 
   function setOverlay(overlay: OverlayScreen) {
@@ -300,6 +472,7 @@ export function createAppShell(options: AppShellOptions) {
       state.overlay === "practice" ||
       (state.overlay === "settings" && state.settingsDiagnosticsExpanded) ||
       state.cameraDiagnosticsExpanded ||
+      isExpressionNavigationActive() ||
       (
         state.game?.scene === "play" &&
         !state.game.gameOver &&
@@ -658,6 +831,21 @@ export function createAppShell(options: AppShellOptions) {
       .filter(Boolean)
       .join(" ");
 
+    if (variant === "compact") {
+      return `
+        <div class="${classes}">
+          <div class="expression-chip-main">
+            <span>${isReady && state.controlMode === "expression" ? "認識中" : "表情"}</span>
+            <strong>${expressionName}</strong>
+            <em>${escapeHtml(status?.actionLabel ?? "待機")}</em>
+          </div>
+          <div class="expression-chip-meter" aria-label="認識の強さ">
+            <i style="width: ${confidence}%"></i>
+          </div>
+        </div>
+      `;
+    }
+
     return `
       <div class="${classes}">
         <div class="expression-live-header">
@@ -698,6 +886,19 @@ export function createAppShell(options: AppShellOptions) {
     `;
   }
 
+  function getExpressionNavHintHtml() {
+    if (!isExpressionNavigationActive()) return "";
+    const progress = Math.round(state.expressionNavHoldProgress * 100);
+    return `
+      <div class="expression-nav-hint">
+        <strong>表情ナビ</strong>
+        <span>笑顔で決定 / 驚いた顔で次へ / 怒った顔で戻る</span>
+        <em>${escapeHtml(state.expressionNavNotice)}</em>
+        <div class="expression-nav-meter"><i style="width: ${progress}%"></i></div>
+      </div>
+    `;
+  }
+
   function getSensitivitySelectorHtml() {
     const values: Array<{ value: ExpressionSensitivity; label: string }> = [
       { value: "gentle", label: "やさしい" },
@@ -729,10 +930,21 @@ export function createAppShell(options: AppShellOptions) {
         <div class="hero-copy">
           <span class="eyebrow">顔で走るアクション</span>
           <h1>${APP_NAME}</h1>
-          <p>笑顔でジャンプ、怒った顔で攻撃、驚いた顔でブースト。タップだけでもすぐ遊べます。</p>
+          <p>笑顔でジャンプ、怒った顔で攻撃、驚いた顔でブースト。表情だけでも、タップでも遊べます。</p>
         </div>
 
-        <div class="hero-stats title-stats">
+        <div class="menu-grid title-menu-grid">
+          <button type="button" data-action="start-game" class="primary-button">ゲーム開始</button>
+          <button type="button" data-action="open-practice" class="secondary-button">表情操作チェック</button>
+          <button type="button" data-action="open-gacha" class="secondary-button">ガチャ</button>
+          <button type="button" data-action="open-customize" class="secondary-button">着せ替え</button>
+          <button type="button" data-action="open-ranking" class="secondary-button">ランキング</button>
+          <button type="button" data-action="open-settings" class="ghost-button">設定</button>
+        </div>
+
+        ${getControlModeSelectorHtml()}
+
+        <div class="hero-stats title-stats compact-stats">
           <div class="stat-pill">
             <span>今日のベスト</span>
             <strong>${game.dailyBest}</strong>
@@ -757,19 +969,14 @@ export function createAppShell(options: AppShellOptions) {
           </div>
         </div>
 
-        ${getControlModeSelectorHtml()}
-
-        <div class="menu-grid title-menu-grid">
-          <button type="button" data-action="start-game" class="primary-button">ゲーム開始</button>
-          <button type="button" data-action="open-practice" class="secondary-button">表情操作チェック</button>
-          <button type="button" data-action="continue-without-camera" class="secondary-button">タップ操作</button>
-          <button type="button" data-action="open-gacha" class="secondary-button">ガチャ</button>
-          <button type="button" data-action="open-customize" class="secondary-button">着せ替え</button>
-          <button type="button" data-action="open-ranking" class="secondary-button">ランキング</button>
-          <button type="button" data-action="open-settings" class="ghost-button">設定</button>
+        <div class="face-hints">
+          <span>笑顔で決定</span>
+          <span>驚いた顔で次へ</span>
+          <span>怒った顔で戻る</span>
+          <span>タップ操作もいつでもOK</span>
         </div>
 
-        <div class="face-hints">
+        <div class="face-hints secondary-hints">
           <span>笑顔で開始</span>
           <span>怒った顔で着せ替え</span>
           <span>驚いた顔でガチャ</span>
@@ -781,7 +988,7 @@ export function createAppShell(options: AppShellOptions) {
 
   function getCustomizeHtml(game: GameSnapshot) {
     return `
-      <section class="menu-panel compact">
+      <section class="menu-panel compact customize-panel">
         <div class="panel-header">
           <div>
             <span class="eyebrow">きせかえ</span>
@@ -790,20 +997,45 @@ export function createAppShell(options: AppShellOptions) {
           <button type="button" data-action="back-to-title" class="ghost-button">タイトルへ</button>
         </div>
 
-        <div class="detail-grid">
-          <article class="detail-card">
+        <div class="detail-grid customize-grid">
+          <article class="detail-card preview-card">
+            ${getCosmeticPreviewHtml({
+              image: game.charImage,
+              name: game.charName,
+              rarity: game.charRarity,
+              variant: "character",
+            })}
             <span>キャラ</span>
             <strong>${escapeHtml(game.charName)}</strong>
             <small>レア度: ${escapeHtml(getRarityLabel(game.charRarity))}</small>
             <small>所持: ${game.ownedCharacterCount} / ${game.totalCharacterCount}</small>
             <button type="button" data-action="cycle-character" class="secondary-button">キャラを切り替える</button>
           </article>
-          <article class="detail-card">
+          <article class="detail-card preview-card">
+            ${getCosmeticPreviewHtml({
+              image: game.bgImage,
+              name: game.bgName,
+              rarity: game.bgRarity,
+              variant: "background",
+            })}
             <span>背景</span>
             <strong>${escapeHtml(game.bgName)}</strong>
             <small>レア度: ${escapeHtml(getRarityLabel(game.bgRarity))}</small>
             <small>所持: ${game.ownedBackgroundCount} / ${game.totalBackgroundCount}</small>
             <button type="button" data-action="cycle-background" class="secondary-button">背景を切り替える</button>
+          </article>
+          <article class="detail-card preview-card">
+            ${getCosmeticPreviewHtml({
+              image: game.itemImage,
+              name: game.itemName,
+              rarity: game.itemRarity,
+              variant: "item",
+            })}
+            <span>アクセサリー</span>
+            <strong>${escapeHtml(game.itemName)}</strong>
+            <small>レア度: ${escapeHtml(getRarityLabel(game.itemRarity))}</small>
+            <small>所持: ${game.ownedItemCount} / ${game.totalItemCount}</small>
+            <button type="button" data-action="cycle-item" class="secondary-button">アクセを切り替える</button>
           </article>
         </div>
 
@@ -819,6 +1051,43 @@ export function createAppShell(options: AppShellOptions) {
     const message = game.gachaMessage
       ? `<p class="status-text">${escapeHtml(game.gachaMessage)}</p>`
       : `<p class="status-text">笑顔キープでもガチャを引けます。</p>`;
+    const result = game.gachaResult;
+    const revealPhase = result
+      ? result.ageTicks < 35
+        ? "is-spinning"
+        : result.ageTicks < 85
+          ? "is-revealing"
+          : "is-revealed"
+      : "is-idle";
+    const resultHtml = result
+      ? `
+          <article class="gacha-result-card ${revealPhase} ${getRarityClass(result.rarity)}">
+            <div class="gacha-capsule">
+              ${getCosmeticPreviewHtml({
+                image: result.image,
+                name: result.name,
+                rarity: result.rarity,
+                variant: result.type,
+              })}
+            </div>
+            <div class="gacha-result-copy">
+              <span>${escapeHtml(getRarityLabel(result.rarity))}</span>
+              <strong>${escapeHtml(result.name)}</strong>
+              <small>${result.isNew ? "NEW! 新しく手に入りました" : "ダブりです。コレクション確認に使えます"}</small>
+              <em>${result.isEquipped ? "装備中" : "装備できます"}</em>
+            </div>
+          </article>
+        `
+      : `
+          <article class="gacha-result-card is-idle">
+            <div class="gacha-capsule idle-capsule">?</div>
+            <div class="gacha-result-copy">
+              <span>ごほうび</span>
+              <strong>何が出るかな？</strong>
+              <small>レアなキャラ・背景・アクセサリーを集めよう</small>
+            </div>
+          </article>
+        `;
 
     return `
       <section class="menu-panel compact">
@@ -842,9 +1111,12 @@ export function createAppShell(options: AppShellOptions) {
         </div>
 
         ${message}
+        ${resultHtml}
 
-        <div class="menu-grid single">
+        <div class="menu-grid gacha-actions">
           <button type="button" data-action="roll-gacha" class="primary-button" ${disabled}>ガチャを引く</button>
+          <button type="button" data-action="equip-gacha-result" class="secondary-button" ${result && !result.isEquipped ? "" : "disabled"}>装備する</button>
+          <button type="button" data-action="roll-gacha" class="ghost-button" ${disabled}>もう一度回す</button>
         </div>
 
         <div class="helper-copy">表情ショートカット: 笑顔で引く / 悲しい顔で戻る</div>
@@ -856,7 +1128,7 @@ export function createAppShell(options: AppShellOptions) {
     if (game.scene !== "play" || game.gameOver) return "";
 
     return `
-      <div class="touch-controls">
+      <div class="touch-controls ${game.controlMode === "tap" ? "is-tap-mode" : "is-expression-mode"}">
         <button type="button" data-action="touch-jump" class="touch-button">ジャンプ</button>
         <button type="button" data-action="touch-attack" class="touch-button">攻撃</button>
         <button type="button" data-action="touch-boost" class="touch-button">ブースト</button>
@@ -1410,8 +1682,14 @@ export function createAppShell(options: AppShellOptions) {
           case "cycle-background":
             options.onCycleBackground();
             break;
+          case "cycle-item":
+            options.onCycleItem();
+            break;
           case "roll-gacha":
             options.onRollGacha();
+            break;
+          case "equip-gacha-result":
+            options.onEquipLastGachaResult();
             break;
           case "share-result":
             options.onShare();
@@ -1532,10 +1810,12 @@ export function createAppShell(options: AppShellOptions) {
         ${touchControls}
         ${resultActions}
         ${getOverlayHtml()}
+        ${getExpressionNavHintHtml()}
       </div>
     `;
 
     bindEvents();
+    applyExpressionFocus();
   }
 
   return {
@@ -1586,6 +1866,7 @@ export function createAppShell(options: AppShellOptions) {
       state.expressionStatus = status;
       state.expression = status.expression;
       let practiceCompleted = false;
+      updateExpressionNavigation(status);
 
       if (state.overlay === "practice") {
         const target = getCurrentPracticeExpression();

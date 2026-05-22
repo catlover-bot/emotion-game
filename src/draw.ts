@@ -49,21 +49,6 @@ function drawGlassPanel(
   ctx.restore();
 }
 
-function expressionLabel(expression: Expression): string {
-  switch (expression) {
-    case "happy":
-      return "笑顔";
-    case "angry":
-      return "怒った顔";
-    case "surprised":
-      return "驚いた顔";
-    case "sad":
-      return "悲しい顔";
-    default:
-      return "待機中";
-  }
-}
-
 // 背景
 export function drawBackground(
   dc: DrawContext,
@@ -308,8 +293,6 @@ export function drawUI(
     life,
     feverGauge,
     inFever,
-    currentExpression,
-    controlModeLabel,
     actionFeedbackText,
     achievementToastText,
     missionText,
@@ -323,61 +306,74 @@ export function drawUI(
 
   const w = width();
   const h = height();
-  const topPad = 16;
-  const sidePad = 16;
+  const compact = h <= 430;
+  const tiny = h <= 360;
+  const topPad = compact ? 10 : 14;
+  const sidePad = compact ? 10 : 14;
+  const hudCardH = compact ? 42 : 50;
+  const hudGap = compact ? 7 : 9;
 
   ctx.textBaseline = "top";
 
-  drawGlassPanel(ctx, sidePad, topPad, 156, 74, 24);
+  const scorePanelW = compact ? 132 : 156;
+  drawGlassPanel(ctx, sidePad, topPad, scorePanelW, hudCardH, 18);
   ctx.textAlign = "left";
   ctx.fillStyle = "rgba(226,232,240,0.86)";
-  ctx.font = "600 12px 'Avenir Next', system-ui, sans-serif";
-  ctx.fillText("スコア", sidePad + 16, topPad + 14);
+  ctx.font = `700 ${compact ? 10 : 11}px 'Avenir Next', system-ui, sans-serif`;
+  ctx.fillText("スコア", sidePad + 12, topPad + (compact ? 7 : 8));
   ctx.fillStyle = "#ffffff";
-  ctx.font = "700 26px 'Avenir Next', system-ui, sans-serif";
-  ctx.fillText(`${score}`, sidePad + 16, topPad + 28);
+  ctx.font = `800 ${compact ? 20 : 23}px 'Avenir Next', system-ui, sans-serif`;
+  ctx.fillText(`${score}`, sidePad + 12, topPad + (compact ? 18 : 20));
 
-  if (combo > 0) {
-    drawGlassPanel(ctx, sidePad, topPad + 82, 156, 48, 20);
-    ctx.fillStyle = inFever ? "#facc15" : "#c4b5fd";
-    ctx.font = "700 18px 'Avenir Next', system-ui, sans-serif";
-    ctx.fillText(`コンボ x${combo}`, sidePad + 16, topPad + 96);
-  }
+  const comboPanelW = compact ? 96 : 112;
+  drawGlassPanel(ctx, sidePad + scorePanelW + hudGap, topPad, comboPanelW, hudCardH, 18);
+  ctx.fillStyle = combo > 0 ? (inFever ? "#facc15" : "#c4b5fd") : "rgba(226,232,240,0.78)";
+  ctx.font = `700 ${compact ? 10 : 11}px 'Avenir Next', system-ui, sans-serif`;
+  ctx.fillText("コンボ", sidePad + scorePanelW + hudGap + 12, topPad + (compact ? 7 : 8));
+  ctx.fillStyle = combo > 0 ? "#ffffff" : "rgba(226,232,240,0.82)";
+  ctx.font = `800 ${compact ? 17 : 19}px 'Avenir Next', system-ui, sans-serif`;
+  ctx.fillText(`x${combo}`, sidePad + scorePanelW + hudGap + 12, topPad + (compact ? 21 : 23));
 
-  const infoPanelW = 128;
-  drawGlassPanel(ctx, w - sidePad - infoPanelW, topPad, infoPanelW, 74, 24);
+  const infoPanelW = compact ? 104 : 122;
+  drawGlassPanel(ctx, w - sidePad - infoPanelW, topPad, infoPanelW, hudCardH, 18);
   ctx.textAlign = "right";
   ctx.fillStyle = "rgba(226,232,240,0.84)";
-  ctx.font = "600 12px 'Avenir Next', system-ui, sans-serif";
-  ctx.fillText("コイン", w - sidePad - 16, topPad + 14);
+  ctx.font = `700 ${compact ? 10 : 11}px 'Avenir Next', system-ui, sans-serif`;
+  ctx.fillText("コイン", w - sidePad - 12, topPad + (compact ? 7 : 8));
   ctx.fillStyle = "#ffffff";
-  ctx.font = "700 24px 'Avenir Next', system-ui, sans-serif";
-  ctx.fillText(`${coins}`, w - sidePad - 16, topPad + 28);
+  ctx.font = `800 ${compact ? 18 : 21}px 'Avenir Next', system-ui, sans-serif`;
+  ctx.fillText(`${coins}`, w - sidePad - 12, topPad + (compact ? 20 : 22));
 
-  const lifePanelY = topPad + 82;
-  drawGlassPanel(ctx, w - sidePad - infoPanelW, lifePanelY, infoPanelW, 48, 20);
+  const lifePanelW = compact ? 96 : 112;
+  const lifePanelX = w - sidePad - infoPanelW - hudGap - lifePanelW;
+  drawGlassPanel(ctx, lifePanelX, topPad, lifePanelW, hudCardH, 18);
   ctx.textAlign = "left";
   for (let i = 0; i < 3; i++) {
-    const x = w - sidePad - infoPanelW + 22 + i * 32;
-    const heartY = lifePanelY + 12;
+    const x = lifePanelX + (compact ? 18 : 22) + i * (compact ? 24 : 28);
+    const heartY = topPad + (compact ? 12 : 14);
     ctx.beginPath();
     ctx.fillStyle = i < life ? "#fb7185" : "rgba(148,163,184,0.45)";
-    ctx.moveTo(x, heartY + 8);
-    ctx.bezierCurveTo(x - 8, heartY, x - 16, heartY + 10, x, heartY + 22);
-    ctx.bezierCurveTo(x + 16, heartY + 10, x + 8, heartY, x, heartY + 8);
+    const scale = compact ? 0.78 : 0.88;
+    ctx.moveTo(x, heartY + 8 * scale);
+    ctx.bezierCurveTo(x - 8 * scale, heartY, x - 16 * scale, heartY + 10 * scale, x, heartY + 22 * scale);
+    ctx.bezierCurveTo(x + 16 * scale, heartY + 10 * scale, x + 8 * scale, heartY, x, heartY + 8 * scale);
     ctx.fill();
   }
 
-  drawGlassPanel(ctx, sidePad, h - 136, w - sidePad * 2, 88, 24);
+  const gaugeW = Math.min(w - sidePad * 2, compact ? 300 : 420);
+  const gaugeH = compact ? 42 : 50;
+  const gaugeX = sidePad;
+  const gaugeY = h - sidePad - gaugeH;
+  drawGlassPanel(ctx, gaugeX, gaugeY, gaugeW, gaugeH, 18);
   ctx.fillStyle = inFever ? "#facc15" : "#e5e7eb";
-  ctx.font = "700 14px 'Avenir Next', system-ui, sans-serif";
+  ctx.font = `800 ${compact ? 11 : 12}px 'Avenir Next', system-ui, sans-serif`;
   ctx.textAlign = "left";
-  ctx.fillText(inFever ? "フィーバータイム" : "フィーバーゲージ", sidePad + 16, h - 122);
+  ctx.fillText(inFever ? "フィーバー" : "FEVER", gaugeX + 12, gaugeY + (compact ? 7 : 8));
 
-  const barX = sidePad + 16;
-  const barY = h - 98;
-  const barW = w - sidePad * 2 - 32;
-  const barH = 18;
+  const barX = gaugeX + (compact ? 70 : 84);
+  const barY = gaugeY + (compact ? 12 : 15);
+  const barW = gaugeW - (compact ? 84 : 100);
+  const barH = compact ? 12 : 14;
 
   roundedRectPath(ctx, barX, barY, barW, barH, 10);
   ctx.fillStyle = "rgba(15,23,42,0.92)";
@@ -400,21 +396,27 @@ export function drawUI(
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  ctx.fillStyle = "rgba(226,232,240,0.84)";
-  ctx.font = "600 12px 'Avenir Next', system-ui, sans-serif";
-  ctx.fillText(missionText, sidePad + 16, h - 70);
-
-  drawGlassPanel(ctx, sidePad, topPad + 138, 232, 66, 18);
-  ctx.fillStyle = "rgba(226,232,240,0.9)";
-  ctx.font = "700 12px 'Avenir Next', system-ui, sans-serif";
-  ctx.fillText(`操作: ${controlModeLabel}`, sidePad + 16, topPad + 150);
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "700 15px 'Avenir Next', system-ui, sans-serif";
-  ctx.fillText(`いま: ${expressionLabel(currentExpression)}`, sidePad + 16, topPad + 168);
   if (actionFeedbackText) {
+    const feedbackW = Math.min(260, w - sidePad * 2);
+    const feedbackX = w / 2 - feedbackW / 2;
+    const feedbackY = topPad + hudCardH + (compact ? 8 : 12);
+    drawGlassPanel(ctx, feedbackX, feedbackY, feedbackW, compact ? 34 : 40, 18);
+    ctx.textAlign = "center";
     ctx.fillStyle = "#fed7aa";
-    ctx.font = "800 14px 'Avenir Next', system-ui, sans-serif";
-    ctx.fillText(actionFeedbackText, sidePad + 16, topPad + 186);
+    ctx.font = `900 ${compact ? 14 : 16}px 'Avenir Next', system-ui, sans-serif`;
+    ctx.fillText(actionFeedbackText, w / 2, feedbackY + (compact ? 8 : 10));
+    ctx.textAlign = "left";
+  } else if (!tiny) {
+    const missionW = Math.min(360, w - sidePad * 2 - (compact ? 230 : 320));
+    if (missionW > 180) {
+      const missionX = Math.max(sidePad, w / 2 - missionW / 2);
+      drawGlassPanel(ctx, missionX, topPad, missionW, hudCardH, 18);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(226,232,240,0.88)";
+      ctx.font = `700 ${compact ? 10 : 11}px 'Avenir Next', system-ui, sans-serif`;
+      ctx.fillText(missionText, missionX + missionW / 2, topPad + (compact ? 14 : 17));
+      ctx.textAlign = "left";
+    }
   }
 
   // トレンドチャレンジ表示
