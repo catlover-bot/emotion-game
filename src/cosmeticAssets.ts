@@ -56,7 +56,7 @@ function isValidImagePath(value: string): boolean {
 }
 
 function resolveImagePath(image: string): string {
-  if (image.startsWith("/")) return image;
+  if (image.startsWith("/")) return `.${image}`;
   if (image.startsWith("./")) return image;
   return `./${image}`;
 }
@@ -105,7 +105,15 @@ function preloadImage(asset: CosmeticAssetDefinition): Promise<void> {
     const image = new Image();
     image.onload = () => {
       loadedImageCache.set(asset.id, image);
+      loadedImageCache.set(asset.image, image);
       failedImageIds.delete(asset.id);
+      logCosmeticsInfo("image-preload-success", {
+        id: asset.id,
+        kind: asset.kind,
+        image: asset.image,
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      });
       resolve();
     };
     image.onerror = () => {
@@ -141,11 +149,15 @@ export async function loadCosmeticAssets(): Promise<CosmeticAssetDefinition[]> {
     ];
     assetDefinitions = assets;
     await Promise.all(assets.map((asset) => preloadImage(asset)));
+    const loadedImages = assets.filter((asset) => loadedImageCache.has(asset.id)).length;
+    const failedImages = assets.filter((asset) => failedImageIds.has(asset.id)).length;
     logCosmeticsInfo("manifest-loaded", {
       count: assets.length,
       characters: assets.filter((asset) => asset.kind === "character").length,
       backgrounds: assets.filter((asset) => asset.kind === "background").length,
       items: assets.filter((asset) => asset.kind === "item").length,
+      loadedImages,
+      failedImages,
     });
   } catch (error) {
     assetDefinitions = [];

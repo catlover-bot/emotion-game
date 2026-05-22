@@ -199,15 +199,27 @@ function getRarityClass(rarity: Rarity): string {
   return `rarity-${rarity}`;
 }
 
+function getCosmeticCategoryLabel(type: "character" | "background" | "item"): string {
+  switch (type) {
+    case "background":
+      return "背景";
+    case "item":
+      return "アクセサリー";
+    default:
+      return "キャラ";
+  }
+}
+
 function getCosmeticPreviewHtml(params: {
   image: string | null;
   name: string;
   rarity: Rarity;
   variant: "character" | "background" | "item";
 }) {
+  const fallback = params.variant === "background" ? "景" : params.variant === "item" ? "★" : "顔";
   const imageHtml = params.image
-    ? `<img src="${escapeHtml(params.image)}" alt="${escapeHtml(params.name)}" loading="lazy" />`
-    : `<span class="preview-fallback">${params.variant === "background" ? "景" : params.variant === "item" ? "★" : "顔"}</span>`;
+    ? `<img src="${escapeHtml(params.image)}" alt="${escapeHtml(params.name)}" loading="lazy" onerror="this.hidden=true" /><span class="preview-fallback">${fallback}</span>`
+    : `<span class="preview-fallback">${fallback}</span>`;
 
   return `
     <div class="cosmetic-preview ${params.variant} ${getRarityClass(params.rarity)}">
@@ -889,10 +901,21 @@ export function createAppShell(options: AppShellOptions) {
   function getExpressionNavHintHtml() {
     if (!isExpressionNavigationActive()) return "";
     const progress = Math.round(state.expressionNavHoldProgress * 100);
+    const game = state.game;
+    const classes = [
+      "expression-nav-chip",
+      "expression-nav-docked",
+      state.overlay !== "none" ? "is-over-modal" : "",
+      game?.scene === "customize" ? "is-customize-scene" : "",
+      game?.scene === "gacha" ? "is-gacha-scene" : "",
+      "expression-nav-hidden-on-small",
+    ]
+      .filter(Boolean)
+      .join(" ");
     return `
-      <div class="expression-nav-hint">
+      <div class="${classes}">
         <strong>表情ナビ</strong>
-        <span>笑顔で決定 / 驚いた顔で次へ / 怒った顔で戻る</span>
+        <span>笑顔:決定 / 驚き:次へ / 怒り:戻る</span>
         <em>${escapeHtml(state.expressionNavNotice)}</em>
         <div class="expression-nav-meter"><i style="width: ${progress}%"></i></div>
       </div>
@@ -927,14 +950,20 @@ export function createAppShell(options: AppShellOptions) {
     const controlMode = getControlModeCopy(state.cameraState, state.controlMode);
     return `
       <section class="menu-panel title-panel">
-        <div class="hero-copy">
-          <span class="eyebrow">顔で走るアクション</span>
-          <h1>${APP_NAME}</h1>
-          <p>笑顔でジャンプ、怒った顔で攻撃、驚いた顔でブースト。表情だけでも、タップでも遊べます。</p>
+        <div class="title-main">
+          <div class="hero-copy">
+            <span class="eyebrow">顔で走るアクション</span>
+            <h1>${APP_NAME}</h1>
+            <p>笑顔でジャンプ、怒った顔で攻撃、驚いた顔でブースト。タップだけでも快適に遊べます。</p>
+          </div>
+
+          <div class="title-primary-area">
+            <button type="button" data-action="start-game" class="primary-button title-start-button">ゲーム開始</button>
+            ${getControlModeSelectorHtml()}
+          </div>
         </div>
 
         <div class="menu-grid title-menu-grid">
-          <button type="button" data-action="start-game" class="primary-button">ゲーム開始</button>
           <button type="button" data-action="open-practice" class="secondary-button">表情操作チェック</button>
           <button type="button" data-action="open-gacha" class="secondary-button">ガチャ</button>
           <button type="button" data-action="open-customize" class="secondary-button">着せ替え</button>
@@ -942,45 +971,17 @@ export function createAppShell(options: AppShellOptions) {
           <button type="button" data-action="open-settings" class="ghost-button">設定</button>
         </div>
 
-        ${getControlModeSelectorHtml()}
-
-        <div class="hero-stats title-stats compact-stats">
-          <div class="stat-pill">
-            <span>今日のベスト</span>
-            <strong>${game.dailyBest}</strong>
+        <div class="title-bottom">
+          <div class="title-stat-strip">
+            <span>今日 ${game.dailyBest}</span>
+            <span>最高 ${game.allTimeBest}</span>
+            <span>コイン ${game.coins}</span>
+            <span>${controlMode.label}</span>
           </div>
-          <div class="stat-pill">
-            <span>最高スコア</span>
-            <strong>${game.allTimeBest}</strong>
-          </div>
-          <div class="stat-pill">
-            <span>コイン</span>
-            <strong>${game.coins}</strong>
-          </div>
-          <div class="stat-pill mode-pill ${controlMode.className}">
-            <span>現在のモード</span>
-            <strong>${controlMode.label}</strong>
-            <small>${controlMode.detail}</small>
-          </div>
-          <div class="stat-pill mission-pill">
-            <span>今日のミッション</span>
+          <div class="title-mission-strip">
             <strong>${escapeHtml(game.missionText.replace("今日のミッション: ", ""))}</strong>
-            <small>${escapeHtml(game.missionProgressText)}</small>
+            <span>${escapeHtml(game.missionProgressText)}</span>
           </div>
-        </div>
-
-        <div class="face-hints">
-          <span>笑顔で決定</span>
-          <span>驚いた顔で次へ</span>
-          <span>怒った顔で戻る</span>
-          <span>タップ操作もいつでもOK</span>
-        </div>
-
-        <div class="face-hints secondary-hints">
-          <span>笑顔で開始</span>
-          <span>怒った顔で着せ替え</span>
-          <span>驚いた顔でガチャ</span>
-          <span>ランキングはGame Center準備中</span>
         </div>
       </section>
     `;
@@ -1005,11 +1006,11 @@ export function createAppShell(options: AppShellOptions) {
               rarity: game.charRarity,
               variant: "character",
             })}
-            <span>キャラ</span>
+            <span class="category-label">キャラ</span>
             <strong>${escapeHtml(game.charName)}</strong>
             <small>レア度: ${escapeHtml(getRarityLabel(game.charRarity))}</small>
             <small>所持: ${game.ownedCharacterCount} / ${game.totalCharacterCount}</small>
-            <button type="button" data-action="cycle-character" class="secondary-button">キャラを切り替える</button>
+            <button type="button" data-action="cycle-character" class="secondary-button">切り替える</button>
           </article>
           <article class="detail-card preview-card">
             ${getCosmeticPreviewHtml({
@@ -1018,11 +1019,11 @@ export function createAppShell(options: AppShellOptions) {
               rarity: game.bgRarity,
               variant: "background",
             })}
-            <span>背景</span>
+            <span class="category-label">背景</span>
             <strong>${escapeHtml(game.bgName)}</strong>
             <small>レア度: ${escapeHtml(getRarityLabel(game.bgRarity))}</small>
             <small>所持: ${game.ownedBackgroundCount} / ${game.totalBackgroundCount}</small>
-            <button type="button" data-action="cycle-background" class="secondary-button">背景を切り替える</button>
+            <button type="button" data-action="cycle-background" class="secondary-button">切り替える</button>
           </article>
           <article class="detail-card preview-card">
             ${getCosmeticPreviewHtml({
@@ -1031,11 +1032,11 @@ export function createAppShell(options: AppShellOptions) {
               rarity: game.itemRarity,
               variant: "item",
             })}
-            <span>アクセサリー</span>
+            <span class="category-label">アクセサリー</span>
             <strong>${escapeHtml(game.itemName)}</strong>
             <small>レア度: ${escapeHtml(getRarityLabel(game.itemRarity))}</small>
             <small>所持: ${game.ownedItemCount} / ${game.totalItemCount}</small>
-            <button type="button" data-action="cycle-item" class="secondary-button">アクセを切り替える</button>
+            <button type="button" data-action="cycle-item" class="secondary-button">切り替える</button>
           </article>
         </div>
 
@@ -1071,7 +1072,7 @@ export function createAppShell(options: AppShellOptions) {
               })}
             </div>
             <div class="gacha-result-copy">
-              <span>${escapeHtml(getRarityLabel(result.rarity))}</span>
+              <span>${escapeHtml(getCosmeticCategoryLabel(result.type))} / ${escapeHtml(getRarityLabel(result.rarity))}</span>
               <strong>${escapeHtml(result.name)}</strong>
               <small>${result.isNew ? "NEW! 新しく手に入りました" : "ダブりです。コレクション確認に使えます"}</small>
               <em>${result.isEquipped ? "装備中" : "装備できます"}</em>

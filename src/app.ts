@@ -2,6 +2,7 @@ import { getRequiredCanvas, getRequiredHtmlElement, getRequiredVideo } from "./d
 import type { CameraDiagnostics, ExpressionRuntimeDiagnostic } from "./camera";
 import { CameraSetupError, setupCamera, stopCamera } from "./camera";
 import { clearOwnedCosmetics } from "./cosmetics";
+import { loadCosmeticAssets } from "./cosmeticAssets";
 import { createGame, type Game } from "./game";
 import {
   ExpressionLoopSetupError,
@@ -224,8 +225,14 @@ export async function startApp(startup: StartupReporter) {
     onCycleBackground() {
       game?.cycleBackground();
     },
+    onCycleItem() {
+      game?.cycleItem();
+    },
     onRollGacha() {
       game?.rollGachaAction();
+    },
+    onEquipLastGachaResult() {
+      game?.equipLastGachaResult();
     },
     onShare() {
       void game?.share();
@@ -311,10 +318,15 @@ export async function startApp(startup: StartupReporter) {
   }
 
   function routeExpression() {
+    const snapshot = game?.getSnapshot();
+    const shouldRouteToGameplay =
+      snapshot?.scene === "play" &&
+      !snapshot.gameOver;
     const expressionForGame =
       controlMode === "expression" &&
       cameraState === "ready" &&
-      !appShell.isBlockingGameInput()
+      !appShell.isBlockingGameInput() &&
+      shouldRouteToGameplay
         ? currentExpression
         : "neutral";
     game?.setExpression(expressionForGame);
@@ -605,6 +617,9 @@ export async function startApp(startup: StartupReporter) {
     appShell.showOnboarding();
     notifyShellVisible("オンボーディングを表示しました。");
   }
+
+  startup.setStage("cosmetics-loading", "着せ替え素材を確認しています…");
+  await loadCosmeticAssets();
 
   startup.setStage("game-creating", "ゲーム本体を準備しています…");
   game = createGame(canvas);

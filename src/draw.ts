@@ -49,29 +49,79 @@ function drawGlassPanel(
   ctx.restore();
 }
 
+function canDrawImage(image: HTMLImageElement | null | undefined): image is HTMLImageElement {
+  return Boolean(image && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0);
+}
+
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const scale = Math.max(w / image.naturalWidth, h / image.naturalHeight);
+  const sourceW = w / scale;
+  const sourceH = h / scale;
+  const sourceX = (image.naturalWidth - sourceW) / 2;
+  const sourceY = (image.naturalHeight - sourceH) / 2;
+  ctx.drawImage(image, sourceX, sourceY, sourceW, sourceH, x, y, w, h);
+}
+
+function drawImageContain(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const scale = Math.min(w / image.naturalWidth, h / image.naturalHeight);
+  const drawW = image.naturalWidth * scale;
+  const drawH = image.naturalHeight * scale;
+  ctx.drawImage(image, x + (w - drawW) / 2, y + (h - drawH) / 2, drawW, drawH);
+}
+
 // 背景
 export function drawBackground(
   dc: DrawContext,
-  params: { inFever: boolean; colors: BackgroundSkinColors },
+  params: { inFever: boolean; colors: BackgroundSkinColors; image?: HTMLImageElement | null },
 ) {
   const { ctx, width, height, groundY } = dc;
-  const { inFever, colors } = params;
+  const { inFever, colors, image } = params;
 
   const w = width();
   const h = height();
 
-  const grad = ctx.createLinearGradient(0, 0, 0, h);
-  if (inFever) {
-    // フィーバー中は少しピンク寄りにブレンド
-    grad.addColorStop(0, colors.top);
-    grad.addColorStop(0.6, "#ec4899");
-    grad.addColorStop(1, colors.bottom);
+  if (canDrawImage(image)) {
+    ctx.fillStyle = colors.bottom;
+    ctx.fillRect(0, 0, w, h);
+    try {
+      drawImageCover(ctx, image, 0, 0, w, h);
+    } catch {
+      // If a decoded image becomes unavailable, keep the color fallback path visible.
+    }
+    const overlay = ctx.createLinearGradient(0, 0, 0, h);
+    overlay.addColorStop(0, inFever ? "rgba(236,72,153,0.22)" : "rgba(2,6,23,0.06)");
+    overlay.addColorStop(0.72, "rgba(2,6,23,0.2)");
+    overlay.addColorStop(1, "rgba(2,6,23,0.42)");
+    ctx.fillStyle = overlay;
+    ctx.fillRect(0, 0, w, h);
   } else {
-    grad.addColorStop(0, colors.top);
-    grad.addColorStop(1, colors.bottom);
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    if (inFever) {
+      // フィーバー中は少しピンク寄りにブレンド
+      grad.addColorStop(0, colors.top);
+      grad.addColorStop(0.6, "#ec4899");
+      grad.addColorStop(1, colors.bottom);
+    } else {
+      grad.addColorStop(0, colors.top);
+      grad.addColorStop(1, colors.bottom);
+    }
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
   }
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, w, h);
 
   const orbA = ctx.createRadialGradient(w * 0.15, h * 0.18, 20, w * 0.15, h * 0.18, w * 0.32);
   orbA.addColorStop(0, "rgba(56,189,248,0.18)");
@@ -118,6 +168,8 @@ export function drawPlayer(
     currentExpression: Expression;
     isOnGround: boolean;
     skinColors: CharacterSkinColors;
+    characterImage?: HTMLImageElement | null;
+    accessoryImage?: HTMLImageElement | null;
   },
 ) {
   const { ctx } = dc;
@@ -128,6 +180,8 @@ export function drawPlayer(
     currentExpression,
     isOnGround,
     skinColors,
+    characterImage,
+    accessoryImage,
   } = params;
 
   const isAngry = currentExpression === "angry";
@@ -139,38 +193,72 @@ export function drawPlayer(
   const squash = isHappy && !isOnGround ? 0.9 : 1.0;
 
   ctx.scale(1.0, squash);
-  ctx.fillStyle = skinColors.body;
-  ctx.beginPath();
-  ctx.arc(0, 0, playerRadius, 0, Math.PI * 2);
-  ctx.fill();
 
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = skinColors.outline;
-  ctx.stroke();
-
-  // eyes
-  ctx.fillStyle = skinColors.eye;
-  ctx.beginPath();
-  ctx.arc(-10, -10, 4, 0, Math.PI * 2);
-  ctx.arc(10, -10, 4, 0, Math.PI * 2);
-  ctx.fill();
-
-  // mouth
-  ctx.strokeStyle = skinColors.mouth;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  if (isHappy) {
-    ctx.arc(0, 2, 10, 0, Math.PI);
-  } else if (currentExpression === "sad") {
-    ctx.arc(0, 10, 10, Math.PI, Math.PI * 2);
-  } else if (isAngry) {
-    ctx.moveTo(-8, 12);
-    ctx.lineTo(8, 8);
+  if (canDrawImage(characterImage)) {
+    const size = playerRadius * 2.55;
+    ctx.save();
+    ctx.shadowColor = "rgba(15,23,42,0.35)";
+    ctx.shadowBlur = 8;
+    try {
+      drawImageContain(ctx, characterImage, -size / 2, -size / 2, size, size);
+    } catch {
+      ctx.fillStyle = skinColors.body;
+      ctx.beginPath();
+      ctx.arc(0, 0, playerRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   } else {
-    ctx.moveTo(-8, 8);
-    ctx.lineTo(8, 8);
+    ctx.fillStyle = skinColors.body;
+    ctx.beginPath();
+    ctx.arc(0, 0, playerRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = skinColors.outline;
+    ctx.stroke();
+
+    // eyes
+    ctx.fillStyle = skinColors.eye;
+    ctx.beginPath();
+    ctx.arc(-10, -10, 4, 0, Math.PI * 2);
+    ctx.arc(10, -10, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // mouth
+    ctx.strokeStyle = skinColors.mouth;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (isHappy) {
+      ctx.arc(0, 2, 10, 0, Math.PI);
+    } else if (currentExpression === "sad") {
+      ctx.arc(0, 10, 10, Math.PI, Math.PI * 2);
+    } else if (isAngry) {
+      ctx.moveTo(-8, 12);
+      ctx.lineTo(8, 8);
+    } else {
+      ctx.moveTo(-8, 8);
+      ctx.lineTo(8, 8);
+    }
+    ctx.stroke();
   }
-  ctx.stroke();
+
+  if (canDrawImage(accessoryImage)) {
+    const accessoryW = playerRadius * 1.35;
+    const accessoryH = playerRadius * 0.82;
+    try {
+      drawImageContain(
+        ctx,
+        accessoryImage,
+        -accessoryW / 2,
+        -playerRadius * 1.18,
+        accessoryW,
+        accessoryH,
+      );
+    } catch {
+      // Accessory PNGs are optional; character rendering should never fail because of them.
+    }
+  }
 
   ctx.restore();
 }

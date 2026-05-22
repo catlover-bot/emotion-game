@@ -30,9 +30,12 @@ import {
   rollGacha,
   cycleCharacterSkin,
   cycleBackgroundSkin,
+  cycleItemCosmetic,
   getCosmeticCollectionSummary,
+  findItemCosmetic,
   GACHA_COST,
   type OwnedCosmetics,
+  type GachaResult,
 } from "./cosmetics";
 import { shareResultImage } from "./share";
 import { dailySeed } from "./dailySeed";
@@ -50,6 +53,7 @@ import {
   showLeaderboard,
   submitScore,
 } from "./gameCenter";
+import { getLoadedCosmeticImage } from "./cosmeticAssets";
 
 export type Scene = "title" | "play" | "customize" | "gacha";
 export type GameAction = "jump" | "attack" | "boost";
@@ -77,6 +81,8 @@ export type GameSnapshot = {
   totalCharacterCount: number;
   ownedBackgroundCount: number;
   totalBackgroundCount: number;
+  ownedItemCount: number;
+  totalItemCount: number;
   missionText: string;
   missionProgressText: string;
   missionCompleted: boolean;
@@ -85,9 +91,23 @@ export type GameSnapshot = {
   missionRewardEarned: boolean;
   charName: string;
   charRarity: Rarity;
+  charImage: string | null;
   bgName: string;
   bgRarity: Rarity;
+  bgImage: string | null;
+  itemName: string;
+  itemRarity: Rarity;
+  itemImage: string | null;
   gachaMessage: string | null;
+  gachaResult: {
+    type: "character" | "background" | "item";
+    name: string;
+    rarity: Rarity;
+    image: string | null;
+    isNew: boolean;
+    ageTicks: number;
+    isEquipped: boolean;
+  } | null;
   gachaCost: number;
   canRollGacha: boolean;
 };
@@ -105,7 +125,9 @@ export type Game = {
   openGacha(): void;
   cycleCharacter(): void;
   cycleBackground(): void;
+  cycleItem(): void;
   rollGachaAction(): void;
+  equipLastGachaResult(): void;
   triggerAction(action: GameAction): void;
   openRanking(): void;
   share(): Promise<void>;
@@ -231,6 +253,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   let cosmetics: OwnedCosmetics = loadOwnedCosmetics();
   const listeners = new Set<(snapshot: GameSnapshot) => void>();
   let snapshotDirty = true;
+  let lastCosmeticRenderDiagnosticKey = "";
 
   function markSnapshotDirty() {
     snapshotDirty = true;
@@ -242,9 +265,24 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     markSnapshotDirty();
   }
 
+  function getCosmeticCanvasImage(
+    id: string,
+    imagePath: string | null | undefined,
+  ): HTMLImageElement | null {
+    return getLoadedCosmeticImage(id) ?? getLoadedCosmeticImage(imagePath);
+  }
+
+  function getAvailableCosmeticPreviewPath(
+    id: string,
+    imagePath: string | null | undefined,
+  ): string | null {
+    return imagePath && getCosmeticCanvasImage(id, imagePath) ? imagePath : null;
+  }
+
   // ガチャメッセージ / コイン獲得メッセージ
   let lastGachaMessage: string | null = null;
   let lastGachaTick = 0;
+  let lastGachaResult: GachaResult | null = null;
   let lastCoinsEarned = 0;
   let lastCoinsEarnedTick = 0;
 
@@ -683,10 +721,25 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   function getSnapshot(): GameSnapshot {
     const charSkin = findCharacterSkin(cosmetics.equippedCharacterSkinId);
     const bgSkin = findBackgroundSkin(cosmetics.equippedBackgroundSkinId);
+    const item = findItemCosmetic(cosmetics.equippedItemId);
     const publicState = getPublicState();
     const missionCompleted = dailyMission.condition(publicState);
     const achievementSummary = getAchievementSummary();
     const collection = getCosmeticCollectionSummary(cosmetics);
+    const gachaResult = lastGachaResult
+      ? {
+          type: lastGachaResult.type,
+          name: lastGachaResult.name,
+          rarity: lastGachaResult.rarity,
+          image: lastGachaResult.image ?? null,
+          isNew: lastGachaResult.isNew,
+          ageTicks: Math.max(0, tick - lastGachaTick),
+          isEquipped:
+            (lastGachaResult.type === "character" && cosmetics.equippedCharacterSkinId === lastGachaResult.id) ||
+            (lastGachaResult.type === "background" && cosmetics.equippedBackgroundSkinId === lastGachaResult.id) ||
+            (lastGachaResult.type === "item" && cosmetics.equippedItemId === lastGachaResult.id),
+        }
+      : null;
     return {
       scene,
       gameOver,
@@ -711,6 +764,8 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       totalCharacterCount: collection.totalCharacterCount,
       ownedBackgroundCount: collection.ownedBackgroundCount,
       totalBackgroundCount: collection.totalBackgroundCount,
+      ownedItemCount: collection.ownedItemCount,
+      totalItemCount: collection.totalItemCount,
       missionText: dailyMission.text,
       missionProgressText: dailyMission.progressText(publicState),
       missionCompleted,
@@ -719,9 +774,15 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       missionRewardEarned: missionRewardEarnedThisRun,
       charName: charSkin.name,
       charRarity: charSkin.rarity,
+      charImage: getAvailableCosmeticPreviewPath(charSkin.id, charSkin.image),
       bgName: bgSkin.name,
       bgRarity: bgSkin.rarity,
+      bgImage: getAvailableCosmeticPreviewPath(bgSkin.id, bgSkin.image),
+      itemName: item.name,
+      itemRarity: item.rarity,
+      itemImage: getAvailableCosmeticPreviewPath(item.id, item.image),
       gachaMessage: lastGachaMessage,
+      gachaResult,
       gachaCost: GACHA_COST,
       canRollGacha: canRollGacha(cosmetics),
     };
@@ -960,6 +1021,48 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     }
   }
 
+  function cycleItem() {
+    if (scene !== "customize") return;
+    const next = cycleItemCosmetic(cosmetics);
+    if (next !== cosmetics) {
+      updateCosmetics(next);
+      recordAchievement("first_skin_change");
+      spawnLikeShower(width() / 2, groundY() - 110);
+      markSnapshotDirty();
+    }
+  }
+
+  function equipGachaResult(result: GachaResult, state: OwnedCosmetics): OwnedCosmetics {
+    if (result.type === "character") {
+      return {
+        ...state,
+        equippedCharacterSkinId: result.id,
+      };
+    }
+
+    if (result.type === "background") {
+      return {
+        ...state,
+        equippedBackgroundSkinId: result.id,
+      };
+    }
+
+    return {
+      ...state,
+      equippedItemId: result.id,
+    };
+  }
+
+  function equipLastGachaResult() {
+    if (!lastGachaResult) return;
+    updateCosmetics(equipGachaResult(lastGachaResult, cosmetics));
+    recordAchievement("first_skin_change");
+    lastGachaMessage = `${lastGachaResult.name} を装備しました`;
+    lastGachaTick = tick;
+    spawnLikeShower(width() / 2, groundY() - 90);
+    markSnapshotDirty();
+  }
+
   function runGacha() {
     if (scene !== "gacha") return;
     if (!canRollGacha(cosmetics)) {
@@ -972,16 +1075,15 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     try {
       const { state, result } = rollGacha(cosmetics);
       const nextState = result.isNew
-        ? {
-            ...state,
-            equippedCharacterSkinId:
-              result.type === "character" ? result.id : state.equippedCharacterSkinId,
-            equippedBackgroundSkinId:
-              result.type === "background" ? result.id : state.equippedBackgroundSkinId,
-          }
+        ? equipGachaResult(result, state)
         : state;
       updateCosmetics(nextState);
-      const kind = result.type === "character" ? "キャラ衣装" : "背景スキン";
+      const kind =
+        result.type === "character"
+          ? "キャラ衣装"
+          : result.type === "background"
+            ? "背景スキン"
+            : "アクセサリー";
       const rarityLabel =
         result.rarity === "legendary"
           ? "レジェンダリー"
@@ -993,6 +1095,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       const newStr = result.isNew ? "新しく追加！すぐ装備しました" : "ダブりでした";
       lastGachaMessage = `${kind} を入手 (${rarityLabel}) ${newStr}`;
       lastGachaTick = tick;
+      lastGachaResult = result;
       recordAchievement("first_gacha");
       if (result.isNew) {
         recordAchievement("first_skin_change");
@@ -1360,6 +1463,26 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     // スキン情報（毎フレーム、ID→色情報に変換）
     const charSkin = findCharacterSkin(cosmetics.equippedCharacterSkinId);
     const bgSkin = findBackgroundSkin(cosmetics.equippedBackgroundSkinId);
+    const item = findItemCosmetic(cosmetics.equippedItemId);
+    const charImage = getCosmeticCanvasImage(charSkin.id, charSkin.image);
+    const bgImage = getCosmeticCanvasImage(bgSkin.id, bgSkin.image);
+    const itemImage = getCosmeticCanvasImage(item.id, item.image);
+    const cosmeticRenderDiagnosticKey = [
+      charSkin.id,
+      charImage ? "character-png" : "character-fallback",
+      bgSkin.id,
+      bgImage ? "background-png" : "background-fallback",
+      item.id,
+      itemImage ? "item-png" : "item-fallback",
+    ].join("|");
+    if (cosmeticRenderDiagnosticKey !== lastCosmeticRenderDiagnosticKey) {
+      lastCosmeticRenderDiagnosticKey = cosmeticRenderDiagnosticKey;
+      console.info("EMOTION_RUNNER_COSMETICS gameplay-rendering", {
+        character: { id: charSkin.id, name: charSkin.name, usingPng: Boolean(charImage) },
+        background: { id: bgSkin.id, name: bgSkin.name, usingPng: Boolean(bgImage) },
+        item: { id: item.id, name: item.name, usingPng: Boolean(itemImage) },
+      });
+    }
 
     // ガチャメッセージの寿命（約5秒）
     const activeGachaMessage =
@@ -1375,6 +1498,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       drawBackground(drawCtx, {
         inFever,
         colors: bgSkin.colors,
+        image: bgImage,
       });
       drawStars(drawCtx, stars, tick, inFever);
       drawBombs(drawCtx, bombs);
@@ -1387,6 +1511,8 @@ export function createGame(canvas: HTMLCanvasElement): Game {
         currentExpression,
         isOnGround,
         skinColors: charSkin.colors,
+        characterImage: charImage,
+        accessoryImage: itemImage,
       });
 
       const trendInfo = getTrendLabelAndProgress();
@@ -1437,6 +1563,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       drawBackground(drawCtx, {
         inFever: false,
         colors: bgSkin.colors,
+        image: bgImage,
       });
 
       drawPlayer(drawCtx, {
@@ -1447,6 +1574,8 @@ export function createGame(canvas: HTMLCanvasElement): Game {
         currentExpression,
         isOnGround: true,
         skinColors: charSkin.colors,
+        characterImage: charImage,
+        accessoryImage: itemImage,
       });
 
       drawLikeParticles(drawCtx, likeParticles);
@@ -1462,6 +1591,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       drawBackground(drawCtx, {
         inFever: false,
         colors: bgSkin.colors,
+        image: bgImage,
       });
 
       const centerX = width() / 2;
@@ -1474,6 +1604,8 @@ export function createGame(canvas: HTMLCanvasElement): Game {
         currentExpression,
         isOnGround: true,
         skinColors: charSkin.colors,
+        characterImage: charImage,
+        accessoryImage: itemImage,
       });
 
       drawLikeParticles(drawCtx, likeParticles);
@@ -1489,6 +1621,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       drawBackground(drawCtx, {
         inFever: false,
         colors: bgSkin.colors,
+        image: bgImage,
       });
 
       drawLikeParticles(drawCtx, likeParticles);
@@ -1564,9 +1697,11 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     openGacha,
     cycleCharacter,
     cycleBackground,
+    cycleItem,
     rollGachaAction() {
       runGacha();
     },
+    equipLastGachaResult,
     openRanking() {
       void showLeaderboard();
     },

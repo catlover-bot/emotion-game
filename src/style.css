@@ -236,7 +236,10 @@ button {
 }
 
 .title-panel {
-  max-width: 460px;
+  width: min(100%, 960px);
+  max-width: 960px;
+  display: grid;
+  gap: 16px;
 }
 
 .hero-copy {
@@ -395,15 +398,6 @@ button {
   gap: 12px;
 }
 
-.title-menu-grid {
-  grid-template-columns: 1fr;
-}
-
-.title-menu-grid .primary-button {
-  min-height: 62px;
-  font-size: 1.12rem;
-}
-
 .menu-grid.single {
   grid-template-columns: 1fr;
 }
@@ -483,6 +477,63 @@ button {
   opacity: 0.72;
 }
 
+.title-main {
+  display: grid;
+  gap: 16px;
+  align-items: center;
+}
+
+.title-primary-area {
+  display: grid;
+  gap: 10px;
+}
+
+.title-start-button {
+  min-height: clamp(58px, 13dvh, 76px);
+  font-size: clamp(1.05rem, 2.9dvh, 1.24rem);
+}
+
+.title-menu-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.title-bottom {
+  display: grid;
+  gap: 9px;
+}
+
+.title-stat-strip,
+.title-mission-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: rgba(8, 21, 39, 0.58);
+  border: 1px solid rgba(191, 219, 254, 0.15);
+}
+
+.title-stat-strip span,
+.title-mission-strip span {
+  color: rgba(226, 232, 240, 0.82);
+  font-size: 0.82rem;
+}
+
+.title-stat-strip span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.title-mission-strip {
+  justify-content: space-between;
+}
+
+.title-mission-strip strong {
+  font-size: 0.92rem;
+}
+
 .title-footer-actions {
   display: flex;
   justify-content: center;
@@ -557,9 +608,11 @@ button {
 }
 
 .cosmetic-preview img {
+  grid-area: 1 / 1;
   width: 100%;
   height: 100%;
   object-fit: contain;
+  z-index: 1;
 }
 
 .cosmetic-preview.background img {
@@ -567,6 +620,7 @@ button {
 }
 
 .preview-fallback {
+  grid-area: 1 / 1;
   display: grid;
   place-items: center;
   width: 64px;
@@ -576,6 +630,20 @@ button {
   color: #fff;
   font-size: 1.45rem;
   font-weight: 900;
+}
+
+.cosmetic-preview img:not([hidden]) + .preview-fallback {
+  display: none;
+}
+
+.category-label {
+  justify-self: start;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: #bfdbfe;
+  background: rgba(56, 189, 248, 0.14);
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .rarity-rare {
@@ -621,6 +689,15 @@ button {
     max(20px, var(--safe-bottom))
     max(20px, var(--safe-left));
   background: rgba(2, 6, 23, 0.56);
+}
+
+#uiRoot[data-overlay]:not([data-overlay="none"]) .modal-screen {
+  padding-bottom: calc(max(20px, var(--safe-bottom)) + 50px);
+}
+
+#uiRoot[data-scene="customize"] .scene-overlay,
+#uiRoot[data-scene="gacha"] .scene-overlay {
+  padding-bottom: calc(max(18px, var(--safe-bottom)) + 58px);
 }
 
 .boot-screen {
@@ -997,7 +1074,13 @@ button {
 .gacha-capsule {
   display: grid;
   place-items: center;
-  min-height: 132px;
+  min-height: clamp(118px, 28dvh, 168px);
+}
+
+.gacha-capsule .cosmetic-preview {
+  width: 100%;
+  min-height: clamp(112px, 26dvh, 160px);
+  max-height: clamp(118px, 30dvh, 178px);
 }
 
 .idle-capsule {
@@ -1030,6 +1113,7 @@ button {
 
 .gacha-result-copy strong {
   font-size: 1.35rem;
+  overflow-wrap: anywhere;
 }
 
 .gacha-result-copy small,
@@ -1043,39 +1127,46 @@ button {
   margin-top: 14px;
 }
 
-.expression-nav-hint {
+.expression-nav-chip {
   pointer-events: none;
   position: absolute;
-  left: 50%;
-  bottom: calc(max(16px, var(--safe-bottom)) + 76px);
-  transform: translateX(-50%);
-  z-index: 45;
-  width: min(520px, calc(100% - 32px));
+  left: max(14px, var(--safe-left));
+  bottom: max(14px, var(--safe-bottom));
+  z-index: 42;
+  width: min(300px, calc(100% - max(28px, var(--safe-left)) - max(28px, var(--safe-right))));
   display: grid;
-  gap: 5px;
-  padding: 10px 14px;
-  border-radius: 18px;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4px 9px;
+  padding: 8px 11px;
+  border-radius: 999px;
   border: 1px solid rgba(250, 204, 21, 0.25);
   background: rgba(7, 18, 34, 0.72);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.28);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.26);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
 
-.expression-nav-hint strong {
+.expression-nav-chip strong {
   color: #ffffff;
-  font-size: 0.86rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
 }
 
-.expression-nav-hint span,
-.expression-nav-hint em {
+.expression-nav-chip span,
+.expression-nav-chip em {
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-style: normal;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .expression-nav-meter {
-  height: 6px;
+  grid-column: 1 / -1;
+  height: 4px;
   overflow: hidden;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.86);
@@ -1087,6 +1178,23 @@ button {
   border-radius: inherit;
   background: linear-gradient(90deg, #facc15, #22c55e);
   transition: width 90ms linear;
+}
+
+.expression-nav-expanded {
+  border-radius: 18px;
+}
+
+.expression-nav-docked.is-over-modal {
+  left: max(12px, var(--safe-left));
+  bottom: max(12px, var(--safe-bottom));
+  width: min(260px, 42vw);
+  opacity: 0.9;
+}
+
+.expression-nav-docked.is-customize-scene,
+.expression-nav-docked.is-gacha-scene {
+  left: max(12px, var(--safe-left));
+  bottom: max(12px, var(--safe-bottom));
 }
 
 @keyframes capsule-spin {
@@ -1274,6 +1382,12 @@ button {
 .customize-grid .preview-card {
   display: grid;
   gap: 7px;
+  min-height: 0;
+  align-content: start;
+}
+
+.customize-grid .preview-card strong {
+  overflow-wrap: anywhere;
 }
 
 @media (orientation: landscape) and (min-width: 700px) {
@@ -1315,16 +1429,20 @@ button {
     padding: 28px 28px 24px;
   }
 
+  .title-main {
+    grid-template-columns: minmax(0, 1.05fr) minmax(260px, 0.8fr);
+  }
+
   .title-menu-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
-  .title-menu-grid .primary-button {
-    grid-column: 1 / -1;
+  .title-bottom {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.72fr);
   }
 
-  .title-stats {
-    grid-template-columns: 0.9fr 0.9fr 0.75fr 1.2fr 1.35fr;
+  .title-stat-strip {
+    justify-content: center;
   }
 
   .face-hints {
@@ -1341,14 +1459,7 @@ button {
   }
 
   .customize-grid {
-    grid-template-columns: minmax(220px, 0.92fr) minmax(240px, 1.08fr);
-  }
-
-  .customize-grid .preview-card:first-child {
-    grid-row: span 2;
-    position: sticky;
-    top: 0;
-    z-index: 1;
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
   }
 
   .touch-controls {
@@ -1461,6 +1572,15 @@ button {
       calc(max(12px, var(--safe-left)) + 8px);
   }
 
+  #uiRoot[data-scene="customize"] .scene-overlay,
+  #uiRoot[data-scene="gacha"] .scene-overlay {
+    padding-bottom: calc(max(8px, var(--safe-bottom)) + 44px);
+  }
+
+  #uiRoot[data-overlay]:not([data-overlay="none"]) .modal-screen {
+    padding-bottom: calc(max(14px, var(--safe-bottom)) + 42px);
+  }
+
   .menu-panel,
   .modal-card {
     padding: 14px;
@@ -1469,6 +1589,15 @@ button {
 
   .title-panel {
     max-width: 900px;
+  }
+
+  .title-panel {
+    gap: 10px;
+  }
+
+  .title-main {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.72fr);
+    gap: 10px;
   }
 
   .hero-copy {
@@ -1489,6 +1618,21 @@ button {
   .tip-list,
   .step-list {
     font-size: 0.82rem;
+  }
+
+  .title-stat-strip,
+  .title-mission-strip {
+    padding: 7px 9px;
+    gap: 6px;
+  }
+
+  .title-stat-strip span,
+  .title-mission-strip span {
+    font-size: 0.74rem;
+  }
+
+  .title-mission-strip strong {
+    font-size: 0.8rem;
   }
 
   .hero-stats {
@@ -1535,6 +1679,15 @@ button {
 
   .modal-card {
     max-height: calc(100dvh - max(18px, var(--safe-top)) - max(18px, var(--safe-bottom)));
+  }
+
+  .expression-nav-chip {
+    width: min(230px, 38vw);
+    padding: 7px 9px;
+  }
+
+  .expression-nav-chip em {
+    display: none;
   }
 
   .practice-focus-card {
@@ -1589,16 +1742,26 @@ button {
 }
 
 @media (orientation: landscape) and (max-height: 390px) {
-  .title-stats {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+  .title-panel {
+    max-height: calc(100dvh - max(16px, var(--safe-top)) - max(16px, var(--safe-bottom)));
+    overflow: auto;
   }
 
   .title-menu-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 7px;
   }
 
-  .title-menu-grid .primary-button {
-    grid-column: span 2;
+  .title-start-button {
+    min-height: 48px;
+  }
+
+  .title-bottom {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .title-mission-strip {
+    display: none;
   }
 
   .control-mode-selector {
@@ -1644,6 +1807,23 @@ button {
     border-radius: 14px;
   }
 
+  .gacha-result-card {
+    grid-template-columns: minmax(94px, 0.78fr) minmax(0, 1.22fr);
+    gap: 9px;
+    margin-top: 8px;
+    padding: 10px;
+  }
+
+  .gacha-capsule,
+  .gacha-capsule .cosmetic-preview {
+    min-height: 78px;
+    max-height: 96px;
+  }
+
+  .gacha-result-copy strong {
+    font-size: 1rem;
+  }
+
   .preview-fallback {
     width: 46px;
     height: 46px;
@@ -1664,6 +1844,20 @@ button {
 
   .title-stats {
     display: none;
+  }
+
+  .title-bottom {
+    display: none;
+  }
+
+  .expression-nav-hidden-on-small {
+    display: none;
+  }
+
+  #uiRoot[data-overlay]:not([data-overlay="none"]) .modal-screen,
+  #uiRoot[data-scene="customize"] .scene-overlay,
+  #uiRoot[data-scene="gacha"] .scene-overlay {
+    padding-bottom: max(8px, var(--safe-bottom));
   }
 
   .result-summary {

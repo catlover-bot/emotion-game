@@ -62,6 +62,7 @@ const CHARACTER_SKINS: CharacterSkinDef[] = [
     id: "char_default",
     name: "デフォルトフェイス",
     rarity: "common",
+    image: "./cosmetics/characters/green_runner_face.png",
     colors: {
       body: "#22c55e",
       outline: "rgba(0,0,0,0.3)",
@@ -73,6 +74,7 @@ const CHARACTER_SKINS: CharacterSkinDef[] = [
     id: "char_cool_night",
     name: "クールナイト",
     rarity: "rare",
+    image: "./cosmetics/characters/cool_night_face.png",
     colors: {
       body: "#38bdf8",
       outline: "rgba(15,23,42,0.9)",
@@ -84,6 +86,7 @@ const CHARACTER_SKINS: CharacterSkinDef[] = [
     id: "char_pink_idol",
     name: "ピンクアイドル",
     rarity: "epic",
+    image: "./cosmetics/characters/pink_idol_face.png",
     colors: {
       body: "#fb7185",
       outline: "rgba(136,19,55,0.9)",
@@ -95,6 +98,7 @@ const CHARACTER_SKINS: CharacterSkinDef[] = [
     id: "char_cosmic",
     name: "コズミックフェイス",
     rarity: "legendary",
+    image: "./cosmetics/characters/cosmic_face.png",
     colors: {
       body: "#a855f7",
       outline: "rgba(76,29,149,0.9)",
@@ -110,6 +114,7 @@ const BACKGROUND_SKINS: BackgroundSkinDef[] = [
     id: "bg_default",
     name: "夜の路地裏",
     rarity: "common",
+    image: "./cosmetics/backgrounds/night_alley.png",
     colors: {
       top: "#141625",
       bottom: "#1e293b",
@@ -121,6 +126,7 @@ const BACKGROUND_SKINS: BackgroundSkinDef[] = [
     id: "bg_city_neon",
     name: "ネオンシティ",
     rarity: "rare",
+    image: "./cosmetics/backgrounds/neon_city.png",
     colors: {
       top: "#0f172a",
       bottom: "#1d4ed8",
@@ -132,6 +138,7 @@ const BACKGROUND_SKINS: BackgroundSkinDef[] = [
     id: "bg_sunset",
     name: "サンセットビーチ",
     rarity: "epic",
+    image: "./cosmetics/backgrounds/sunset_beach.png",
     colors: {
       top: "#f97316",
       bottom: "#0f172a",
@@ -143,6 +150,7 @@ const BACKGROUND_SKINS: BackgroundSkinDef[] = [
     id: "bg_cosmos",
     name: "コズミックギャラクシー",
     rarity: "legendary",
+    image: "./cosmetics/backgrounds/cosmic_galaxy.png",
     colors: {
       top: "#020617",
       bottom: "#4f46e5",
