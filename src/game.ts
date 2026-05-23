@@ -67,6 +67,7 @@ export type GameSnapshot = {
   isNewDailyRecord: boolean;
   allTimeBest: number;
   isNewAllTimeBest: boolean;
+  allTimeMaxCombo: number;
   rank: string;
   coins: number;
   coinsEarned: number;
@@ -152,6 +153,31 @@ function loadDailyBest(): number {
   } catch {
     return 0;
   }
+}
+
+const ALL_TIME_MAX_COMBO_KEY = "emotion_game_all_time_max_combo";
+
+function loadAllTimeMaxCombo(): number {
+  try {
+    const raw = localStorage.getItem(ALL_TIME_MAX_COMBO_KEY);
+    const value = raw ? Number(raw) : 0;
+    return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveAllTimeMaxComboIfHigher(value: number): number {
+  const previous = loadAllTimeMaxCombo();
+  const next = Math.max(previous, Math.max(0, Math.floor(value)));
+  if (next > previous) {
+    try {
+      localStorage.setItem(ALL_TIME_MAX_COMBO_KEY, String(next));
+    } catch {
+      // Ignore storage failures so gameplay continues.
+    }
+  }
+  return next;
 }
 function saveDailyBest(v: number) {
   try {
@@ -291,6 +317,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   let isNewDailyRecord = false;
   const DAILY_RECORD_BONUS_COINS = 50;
   let allTimeBest = loadAllTimeBest();
+  let allTimeMaxCombo = loadAllTimeMaxCombo();
   let isNewAllTimeBest = false;
   let runProgressRecorded = false;
 
@@ -529,6 +556,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       mode: currentControlMode,
       maxCombo,
     });
+    allTimeMaxCombo = saveAllTimeMaxComboIfHigher(maxCombo);
   }
 
   // ゲームオーバー時にコイン付与
@@ -750,6 +778,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       isNewDailyRecord,
       allTimeBest,
       isNewAllTimeBest,
+      allTimeMaxCombo,
       rank: getRank(score),
       coins: cosmetics.coins,
       coinsEarned: lastCoinsEarned,

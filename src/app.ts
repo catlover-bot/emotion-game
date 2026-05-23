@@ -26,6 +26,12 @@ import {
   saveTutorialComplete,
 } from "./storage";
 import type { ControlMode, Expression, ExpressionSensitivity } from "./types";
+import {
+  createAudioManager,
+  loadAudioSettings,
+  type AudioSettings,
+  type BgmTrack,
+} from "./audio";
 
 export type StartupReporter = {
   setStage(stage: string, detail?: string): void;
@@ -169,6 +175,7 @@ export async function startApp(startup: StartupReporter) {
   let currentExpression: Expression = "neutral";
   let controlMode: ControlMode = loadControlMode();
   let expressionSensitivity: ExpressionSensitivity = loadExpressionSensitivity();
+  let audioSettings: AudioSettings = loadAudioSettings();
   let cameraState: CameraUiState = "idle";
   let lastCameraDiagnostics: CameraDiagnostics | null = null;
   let faceLoopStarted = false;
@@ -177,12 +184,69 @@ export async function startApp(startup: StartupReporter) {
   let game: Game | null = null;
   let shellVisibleNotified = false;
   let recoveryScheduled = false;
+  const audio = createAudioManager(audioSettings);
+  let lastBgmTrack: BgmTrack | null = null;
+  let lastSnapshotScene = "";
+  let lastSnapshotActionText: string | null = null;
+  let lastSnapshotAchievementText: string | null = null;
+  let lastSnapshotMissionRewardEarned = false;
+  let lastSnapshotGachaResultKey = "";
+
+  function getBgmTrackForSnapshot(snapshot: ReturnType<Game["getSnapshot"]>): BgmTrack {
+    if (snapshot.scene === "play") return snapshot.gameOver ? "result" : "gameplay";
+    if (snapshot.scene === "gacha") return "gacha";
+    if (snapshot.scene === "customize") return "customize";
+    return "title";
+  }
+
+  function routeAudio(snapshot: ReturnType<Game["getSnapshot"]>) {
+    const track = getBgmTrackForSnapshot(snapshot);
+    if (track !== lastBgmTrack) {
+      lastBgmTrack = track;
+      audio.requestBgm(track);
+    }
+
+    const sceneKey = `${snapshot.scene}:${snapshot.gameOver ? "result" : "active"}`;
+    if (sceneKey !== lastSnapshotScene) {
+      lastSnapshotScene = sceneKey;
+      if (snapshot.gameOver) {
+        audio.playSfx("resultFanfare", 1000);
+      }
+    }
+
+    if (snapshot.lastActionText && snapshot.lastActionText !== lastSnapshotActionText) {
+      if (snapshot.lastActionText.includes("ジャンプ")) audio.playSfx("jump", 130);
+      else if (snapshot.lastActionText.includes("アタック") || snapshot.lastActionText.includes("攻撃")) audio.playSfx("attack", 130);
+      else if (snapshot.lastActionText.includes("ブースト")) audio.playSfx("boost", 160);
+    }
+    lastSnapshotActionText = snapshot.lastActionText;
+
+    const achievementText = snapshot.achievementToast ?? "";
+    if (achievementText && achievementText !== lastSnapshotAchievementText) {
+      audio.playSfx("achievement", 700);
+    }
+    lastSnapshotAchievementText = achievementText;
+
+    if (snapshot.missionRewardEarned && !lastSnapshotMissionRewardEarned) {
+      audio.playSfx("missionClear", 700);
+    }
+    lastSnapshotMissionRewardEarned = snapshot.missionRewardEarned;
+
+    const gachaResultKey = snapshot.gachaResult
+      ? `${snapshot.gachaResult.name}:${snapshot.gachaResult.ageTicks > 20 ? "revealed" : "new"}`
+      : "";
+    if (gachaResultKey && gachaResultKey !== lastSnapshotGachaResultKey && snapshot.gachaResult?.ageTicks === 0) {
+      audio.playSfx("gachaReveal", 500);
+    }
+    lastSnapshotGachaResultKey = gachaResultKey;
+  }
 
   startup.setStage("shell-rendered", "初回画面を表示しています…");
 
   const appShell = createAppShell({
     root: uiRoot,
     onStartGame() {
+      audio.unlock();
       if (!game) return;
 
       if (!tutorialComplete) {
@@ -198,21 +262,29 @@ export async function startApp(startup: StartupReporter) {
       routeExpression();
     },
     onOpenCustomize() {
+      audio.unlock();
+      audio.playSfx("confirm");
       if (!game) return;
       appShell.closeOverlay();
       game.openCustomize();
       routeExpression();
     },
     onOpenGacha() {
+      audio.unlock();
+      audio.playSfx("confirm");
       if (!game) return;
       appShell.closeOverlay();
       game.openGacha();
       routeExpression();
     },
     onOpenRanking() {
+      audio.unlock();
+      audio.playSfx("confirm");
       game?.openRanking();
     },
     onBackToTitle() {
+      audio.unlock();
+      audio.playSfx("back");
       if (!game) return;
       pendingStartAfterTutorial = false;
       appShell.closeOverlay();
@@ -220,33 +292,45 @@ export async function startApp(startup: StartupReporter) {
       routeExpression();
     },
     onCycleCharacter() {
+      audio.playSfx("confirm", 150);
       game?.cycleCharacter();
     },
     onCycleBackground() {
+      audio.playSfx("confirm", 150);
       game?.cycleBackground();
     },
     onCycleItem() {
+      audio.playSfx("confirm", 150);
       game?.cycleItem();
     },
     onRollGacha() {
+      audio.playSfx("confirm", 250);
       game?.rollGachaAction();
     },
     onEquipLastGachaResult() {
+      audio.playSfx("confirm");
       game?.equipLastGachaResult();
     },
     onShare() {
+      audio.playSfx("confirm");
       void game?.share();
     },
     onRetryGame() {
+      audio.unlock();
+      audio.playSfx("confirm");
       if (!game) return;
       appShell.closeOverlay();
       game.retry();
       routeExpression();
     },
     onEnableCamera() {
+      audio.unlock();
+      audio.playSfx("confirm");
       void enableCamera();
     },
     onContinueWithoutCamera() {
+      audio.unlock();
+      audio.playSfx("confirm");
       finishOnboarding();
       pendingStartAfterTutorial = false;
       controlMode = "tap";
@@ -257,6 +341,8 @@ export async function startApp(startup: StartupReporter) {
       routeExpression();
     },
     onCloseOverlay() {
+      audio.unlock();
+      audio.playSfx("back");
       if (appShell.getOverlay() === "onboarding") {
         finishOnboarding();
       }
@@ -265,6 +351,8 @@ export async function startApp(startup: StartupReporter) {
       routeExpression();
     },
     onFinishTutorial() {
+      audio.unlock();
+      audio.playSfx("confirm");
       tutorialComplete = true;
       saveTutorialComplete(true);
       appShell.closeOverlay();
@@ -275,6 +363,7 @@ export async function startApp(startup: StartupReporter) {
       routeExpression();
     },
     onTouchAction(action) {
+      audio.unlock();
       game?.triggerAction(action);
     },
     onSetControlMode(mode) {
@@ -282,6 +371,14 @@ export async function startApp(startup: StartupReporter) {
     },
     onSetExpressionSensitivity(sensitivity) {
       setExpressionSensitivity(sensitivity);
+    },
+    onSetAudioSettings(settings) {
+      audioSettings = settings;
+      audio.setSettings(settings);
+      appShell.setAudioSettings(audioSettings);
+    },
+    onUserGesture() {
+      audio.unlock();
     },
     onOverlayChanged() {
       routeExpression();
@@ -298,6 +395,7 @@ export async function startApp(startup: StartupReporter) {
   });
   appShell.setControlMode(controlMode);
   appShell.setExpressionSensitivity(expressionSensitivity);
+  appShell.setAudioSettings(audioSettings);
 
   function hasMeaningfulUiContent() {
     const rect = uiRoot.getBoundingClientRect();
@@ -628,6 +726,7 @@ export async function startApp(startup: StartupReporter) {
 
   game.subscribe((snapshot) => {
     appShell.setGameSnapshot(snapshot);
+    routeAudio(snapshot);
     if (!onboardingComplete) return;
     notifyShellVisible("タイトル画面を表示しました。");
   });

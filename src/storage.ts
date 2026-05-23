@@ -1,6 +1,7 @@
 import type { ControlMode, ExpressionSensitivity } from "./types";
 import { clearGameProgress } from "./achievements";
 import { clearPendingGameServiceEvents } from "./gameCenter";
+import { clearAudioSettings } from "./audio";
 
 const ONBOARDING_KEY = "emotion-game.onboarding-complete";
 const TUTORIAL_KEY = "emotion-game.tutorial-complete";
@@ -85,6 +86,7 @@ export function clearAppStorage(): void {
     window.localStorage.removeItem(TUTORIAL_KEY);
     window.localStorage.removeItem(CONTROL_MODE_KEY);
     window.localStorage.removeItem(EXPRESSION_SENSITIVITY_KEY);
+    window.localStorage.removeItem("emotion_game_all_time_max_combo");
 
     const keysToRemove: string[] = [];
     for (let i = 0; i < window.localStorage.length; i += 1) {
@@ -100,6 +102,7 @@ export function clearAppStorage(): void {
 
     clearGameProgress();
     clearPendingGameServiceEvents();
+    clearAudioSettings();
   } catch {
     // Ignore storage failures so the app can continue.
   }

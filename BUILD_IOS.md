@@ -15,6 +15,8 @@ npm run validate:cosmetics:metadata
 npm run build
 ```
 
+音声ファイルを追加した場合も同じ手順で `npm run build` と `npx cap sync ios` を実行します。音声ファイルが未配置でもアプリは無音フォールバックで動作します。
+
 ## 3. Capacitor の iOS プロジェクトへ反映する
 
 ```bash
@@ -81,6 +83,11 @@ npx cap open ios
 - Xcode の Devices and Simulators Console では `EMOTION_RUNNER_NATIVE_DIAG` と `EMOTION_RUNNER_NATIVE_STAGE` で検索します。
 - Game Center準備レイヤーの確認では `EMOTION_RUNNER_GAME_SERVICES` を検索します。Build 15では native GameKit へ接続せず、local adapter が `submit-score-local` / `report-achievement-local` を出します。
 - TestFlight へ再アップロードするたびに `CURRENT_PROJECT_VERSION` を増やします。
+- Build 19 は result / non-run UI / audio polish build です。結果画面はDOMベースのカードで、スコア、ランク、最大コンボ、今日のベスト、最高スコア、獲得コイン、ミッション、実績を読みやすく確認します。
+- Build 19 では `設定とデータ` に BGM / 効果音のオンオフと音量スライダーがあります。設定は `localStorage` に保存され、音声ファイルが無くてもクラッシュしません。
+- BGM / 効果音は `public/audio/` 配下のローカルファイルだけを参照します。CDN は使いません。詳しくは `docs/AUDIO_ASSETS.md` を確認してください。
+- iOS では音声はユーザー操作後に解放されます。初回タップ前に自動再生されないこと、タップ後にタイトル / gameplay / result / gacha BGM が切り替わることを確認します。
+- Xcode Console で `EMOTION_RUNNER_AUDIO` を検索すると、audio unlock、BGM request、再生失敗、missing file、音量変更を確認できます。
 
 ## PNG cosmetic asset workflow
 

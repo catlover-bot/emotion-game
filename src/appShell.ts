@@ -3,6 +3,7 @@ import type { ExpressionStatus } from "./expressionEngine";
 import type { ControlMode, Expression, ExpressionSensitivity } from "./types";
 import type { GameAction, GameSnapshot } from "./game";
 import type { Rarity } from "./cosmetics";
+import type { AudioSettings } from "./audio";
 
 export type CameraUiState =
   | "idle"
@@ -50,6 +51,8 @@ type AppShellOptions = {
   onTouchAction(action: GameAction): void;
   onSetControlMode(mode: ControlMode): void;
   onSetExpressionSensitivity(sensitivity: ExpressionSensitivity): void;
+  onSetAudioSettings(settings: AudioSettings): void;
+  onUserGesture(): void;
   onOverlayChanged(): void;
   onResetTutorial(): void;
   onResetData(): void;
@@ -74,6 +77,7 @@ type AppShellState = {
   confirmResetData: boolean;
   settingsNotice: string;
   settingsDiagnosticsExpanded: boolean;
+  audioSettings: AudioSettings;
   expressionNavFocusIndex: number;
   expressionNavExpression: Expression | null;
   expressionNavHoldStartedAt: number;
@@ -305,6 +309,12 @@ export function createAppShell(options: AppShellOptions) {
     confirmResetData: false,
     settingsNotice: "",
     settingsDiagnosticsExpanded: false,
+    audioSettings: {
+      bgmEnabled: true,
+      sfxEnabled: true,
+      bgmVolume: 0.45,
+      sfxVolume: 0.62,
+    },
     expressionNavFocusIndex: 0,
     expressionNavExpression: null,
     expressionNavHoldStartedAt: 0,
@@ -898,6 +908,37 @@ export function createAppShell(options: AppShellOptions) {
     `;
   }
 
+  function getAudioSettingsHtml() {
+    const bgmPercent = Math.round(state.audioSettings.bgmVolume * 100);
+    const sfxPercent = Math.round(state.audioSettings.sfxVolume * 100);
+    return `
+      <div class="settings-section audio-settings-section">
+        <strong>サウンド</strong>
+        <div class="audio-toggle-grid">
+          <button
+            type="button"
+            data-action="toggle-bgm"
+            class="mode-button ${state.audioSettings.bgmEnabled ? "is-active" : ""}"
+          >BGM ${state.audioSettings.bgmEnabled ? "オン" : "オフ"}</button>
+          <button
+            type="button"
+            data-action="toggle-sfx"
+            class="mode-button ${state.audioSettings.sfxEnabled ? "is-active" : ""}"
+          >効果音 ${state.audioSettings.sfxEnabled ? "オン" : "オフ"}</button>
+        </div>
+        <label class="audio-slider">
+          <span>BGM音量 <b>${bgmPercent}%</b></span>
+          <input type="range" min="0" max="100" value="${bgmPercent}" data-audio-volume="bgm" />
+        </label>
+        <label class="audio-slider">
+          <span>効果音音量 <b>${sfxPercent}%</b></span>
+          <input type="range" min="0" max="100" value="${sfxPercent}" data-audio-volume="sfx" />
+        </label>
+        <small>音声ファイルが未配置でもゲームはそのまま遊べます。音は最初のタップ後に再生されます。</small>
+      </div>
+    `;
+  }
+
   function getExpressionNavHintHtml() {
     if (!isExpressionNavigationActive()) return "";
     const progress = Math.round(state.expressionNavHoldProgress * 100);
@@ -908,6 +949,7 @@ export function createAppShell(options: AppShellOptions) {
       state.overlay !== "none" ? "is-over-modal" : "",
       game?.scene === "customize" ? "is-customize-scene" : "",
       game?.scene === "gacha" ? "is-gacha-scene" : "",
+      game?.scene === "play" && game.gameOver ? "is-result-scene" : "",
       "expression-nav-hidden-on-small",
     ]
       .filter(Boolean)
@@ -1176,47 +1218,80 @@ export function createAppShell(options: AppShellOptions) {
     const achievementLabel = game.achievementsUnlockedThisRun.length > 0
       ? game.achievementsUnlockedThisRun.join(" / ")
       : `${game.achievementsUnlockedCount} / ${game.achievementsTotalCount} 解除`;
+    const achievementBadges = game.achievementsUnlockedThisRun.length > 0
+      ? game.achievementsUnlockedThisRun
+          .map((achievement) => `<span class="result-badge">${escapeHtml(achievement)}</span>`)
+          .join("")
+      : `<span class="result-badge is-muted">${escapeHtml(achievementLabel)}</span>`;
+    const recordBadge = game.isNewAllTimeBest
+      ? "最高スコア更新！"
+      : game.isNewDailyRecord
+        ? "今日の新記録！"
+        : "ナイスラン！";
 
     return `
-        <div class="result-actions">
-        <button type="button" data-action="retry-game" class="primary-button">もう一度</button>
-        <button type="button" data-action="share-result" class="secondary-button">共有</button>
-        <button type="button" data-action="back-to-title" class="ghost-button">タイトルへ</button>
-      </div>
-      <div class="result-summary result-grid">
-        <div>
-          <span>スコア</span>
-          <strong>${game.score}</strong>
+      <section class="result-overlay">
+        <div class="result-card">
+          <div class="result-hero">
+            <div class="result-score-block">
+              <span class="result-record-badge">${escapeHtml(recordBadge)}</span>
+              <span>スコア</span>
+              <strong>${game.score}</strong>
+              <em>${escapeHtml(game.rank)}</em>
+            </div>
+            <div class="result-preview-stack">
+              ${getCosmeticPreviewHtml({
+                image: game.bgImage,
+                name: game.bgName,
+                rarity: game.bgRarity,
+                variant: "background",
+              })}
+              <div class="result-character-preview">
+                ${getCosmeticPreviewHtml({
+                  image: game.charImage,
+                  name: game.charName,
+                  rarity: game.charRarity,
+                  variant: "character",
+                })}
+                ${game.itemName !== "アクセなし"
+                  ? getCosmeticPreviewHtml({
+                      image: game.itemImage,
+                      name: game.itemName,
+                      rarity: game.itemRarity,
+                      variant: "item",
+                    })
+                  : ""}
+              </div>
+            </div>
+          </div>
+
+          <div class="result-stat-grid">
+            <div><span>最大コンボ</span><strong>×${game.maxCombo}</strong></div>
+            <div><span>今日のベスト</span><strong>${game.dailyBest}</strong></div>
+            <div><span>最高スコア</span><strong>${game.allTimeBest}</strong></div>
+            <div><span>最高コンボ</span><strong>×${game.allTimeMaxCombo}</strong></div>
+            <div><span>獲得コイン</span><strong>+${game.coinsEarned}</strong></div>
+            <div><span>操作モード</span><strong>${escapeHtml(game.controlModeLabel)}</strong></div>
+          </div>
+
+          <div class="result-reward-row">
+            <div class="result-mission-card ${game.missionCompleted ? "is-complete" : ""}">
+              <span>今日のミッション</span>
+              <strong>${escapeHtml(missionLabel)}</strong>
+            </div>
+            <div class="result-achievement-card">
+              <span>実績</span>
+              <div class="result-badges">${achievementBadges}</div>
+            </div>
+          </div>
+
+          <div class="result-actions">
+            <button type="button" data-action="retry-game" class="primary-button">もう一度</button>
+            <button type="button" data-action="share-result" class="secondary-button">共有</button>
+            <button type="button" data-action="back-to-title" class="ghost-button">タイトルへ</button>
+          </div>
         </div>
-        <div>
-          <span>ランク</span>
-          <strong>${escapeHtml(game.rank)}</strong>
-        </div>
-        <div>
-          <span>最大コンボ</span>
-          <strong>×${game.maxCombo}</strong>
-        </div>
-        <div>
-          <span>${game.isNewDailyRecord ? "今日の新記録！" : "今日のベスト"}</span>
-          <strong>${game.dailyBest}</strong>
-        </div>
-        <div>
-          <span>${game.isNewAllTimeBest ? "最高スコア更新！" : "最高スコア"}</span>
-          <strong>${game.allTimeBest}</strong>
-        </div>
-        <div>
-          <span>獲得コイン</span>
-          <strong>+${game.coinsEarned}</strong>
-        </div>
-        <div>
-          <span>今日のミッション</span>
-          <strong>${escapeHtml(missionLabel)}</strong>
-        </div>
-        <div>
-          <span>実績</span>
-          <strong>${escapeHtml(achievementLabel)}</strong>
-        </div>
-      </div>
+      </section>
     `;
   }
 
@@ -1528,6 +1603,8 @@ export function createAppShell(options: AppShellOptions) {
             <small>迷ったら「やさしい」がおすすめです。反応が遅いと感じたら「高感度」を試してください。</small>
           </div>
 
+          ${getAudioSettingsHtml()}
+
           <div class="menu-grid single utility-grid">
             <button type="button" data-action="open-camera-overlay" class="secondary-button">カメラを再確認</button>
             <button type="button" data-action="open-how-to" class="secondary-button">あそび方をもう一度見る</button>
@@ -1570,12 +1647,12 @@ export function createAppShell(options: AppShellOptions) {
               <strong>${game.dailyBest}</strong>
             </div>
             <div class="stat-pill">
-              <span>実績</span>
-              <strong>${game.achievementsUnlockedCount} / ${game.achievementsTotalCount}</strong>
+              <span>最高コンボ</span>
+              <strong>×${game.allTimeMaxCombo}</strong>
             </div>
             <div class="stat-pill">
-              <span>コイン</span>
-              <strong>${game.coins}</strong>
+              <span>実績</span>
+              <strong>${game.achievementsUnlockedCount} / ${game.achievementsTotalCount}</strong>
             </div>
           </div>
 
@@ -1640,6 +1717,7 @@ export function createAppShell(options: AppShellOptions) {
   function bindEvents() {
     root.querySelectorAll<HTMLElement>("[data-action]").forEach((element) => {
       element.addEventListener("click", () => {
+        options.onUserGesture();
         const action = element.dataset.action;
         switch (action) {
           case "start-game":
@@ -1759,6 +1837,18 @@ export function createAppShell(options: AppShellOptions) {
             state.cameraDiagnosticsExpanded = state.settingsDiagnosticsExpanded;
             render();
             break;
+          case "toggle-bgm":
+            options.onSetAudioSettings({
+              ...state.audioSettings,
+              bgmEnabled: !state.audioSettings.bgmEnabled,
+            });
+            break;
+          case "toggle-sfx":
+            options.onSetAudioSettings({
+              ...state.audioSettings,
+              sfxEnabled: !state.audioSettings.sfxEnabled,
+            });
+            break;
           case "touch-jump":
             options.onTouchAction("jump");
             break;
@@ -1768,6 +1858,18 @@ export function createAppShell(options: AppShellOptions) {
           case "touch-boost":
             options.onTouchAction("boost");
             break;
+        }
+      });
+    });
+
+    root.querySelectorAll<HTMLInputElement>("[data-audio-volume]").forEach((input) => {
+      input.addEventListener("input", () => {
+        options.onUserGesture();
+        const value = Math.max(0, Math.min(1, Number(input.value) / 100));
+        if (input.dataset.audioVolume === "bgm") {
+          options.onSetAudioSettings({ ...state.audioSettings, bgmVolume: value });
+        } else if (input.dataset.audioVolume === "sfx") {
+          options.onSetAudioSettings({ ...state.audioSettings, sfxVolume: value });
         }
       });
     });
@@ -1895,6 +1997,10 @@ export function createAppShell(options: AppShellOptions) {
     },
     setExpressionSensitivity(sensitivity: ExpressionSensitivity) {
       state.expressionSensitivity = sensitivity;
+      render();
+    },
+    setAudioSettings(settings: AudioSettings) {
+      state.audioSettings = settings;
       render();
     },
     showOnboarding() {
