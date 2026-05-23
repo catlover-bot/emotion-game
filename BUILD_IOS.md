@@ -64,7 +64,7 @@ npx cap open ios
 - Build 16 では `public/cosmetics/manifest.json` から PNG のキャラ / 背景 / アクセサリーを読み込み、ガチャ結果と着せ替え画面にプレビュー表示します。PNG が無い場合は従来の色ベース表示へ安全にフォールバックします。
 - PNG の実ファイルがまだ無い段階では `npm run validate:cosmetics:metadata` と `npm run cosmetics:missing` を使います。画像を配置したあとの TestFlight / release candidate では strict な `npm run validate:cosmetics` を通してください。
 - Build 15 は gameplay / rewards polish build です。MediaPipe 表情操作は維持しつつ、ローカル実績、今日のミッション、最高スコア、ローカルランキング画面、Game Center接続準備レイヤーを追加しています。
-- Game Center / GameKit の実装はまだ入れていません。Build 15ではローカル no-op adapter がスコア・実績イベントを安全に記録するだけです。
+- Build 20 では iOS向けの GameKit / Game Center ブリッジを追加しています。接続できない環境ではローカル記録に安全に戻ります。
 - `public/mediapipe` には MediaPipe の wasm runtime と `face_landmarker.task` を同梱しています。TestFlight インストール後は CDN なし / オフラインでも起動できることを確認します。
 - 通常画面では診断ビルド表示を出さず、起動失敗時や `診断情報を表示` を押した場合だけ詳細を確認できます。
 - カメラの再確認時は、Xcode Console で `EMOTION_RUNNER_CAMERA` と `EMOTION_RUNNER_MODEL` を検索すると、試行した制約・`getUserMedia` の失敗理由・video サイズ・model 読み込み結果を追えます。
@@ -74,16 +74,17 @@ npx cap open ios
 - Build 15のゲームループQAでは、開始 → プレイ → 結果 → もう一度 が素早く回れること、獲得コイン、ミッション達成、実績解除トースト、最高スコア更新が分かりやすいことを確認します。
 - Build 16の表情ナビQAでは、タイトル → 表情操作チェック → ゲーム開始 → 結果 → もう一度 / タイトルへ を、できるだけタッチせずに操作できることを確認します。メニュー操作は誤操作防止のためホールド式です。
 - Build 16のガチャQAでは、ガチャ開始、カプセル演出、レアリティ表示、アイテム名、新規 / ダブり表示、装備ボタン、もう一度回すボタンが横画面で重ならないことを確認します。
-- `ランキング` は現時点ではローカル記録画面です。タップ時に「Game Centerランキングは次のアップデートで対応予定です。」と表示されることを確認してください。
+- `ランキング` は Game Center接続、Game Centerランキング表示、Game Center実績表示、ローカル記録 fallback を確認します。App Store Connect 側の leaderboard / achievement が未作成でもアプリはクラッシュせず、ローカル記録を表示します。
 - iPhone SE 系や小さめの横画面では、モーダル本文がスクロールでき、CTA / 結果ボタン / タッチ操作がホームインジケータやノッチに重ならないことを確認してください。
 - MediaPipe asset の確認には `npm run validate:mediapipe` を使います。`face_landmarker.task` や wasm が HTML / Git LFS pointer / 異常に小さいファイルになっていないことを確認します。
 - カメラが起動しても表情認識が動かない場合は、まず `npm run validate:models` を実行してください。Build 8/9 の `tensor should have 576 values but has 116` は、runtime で shard の byte 数が壊れている時に出やすい症状です。
 - Capacitor iOS では extensionless な model shard URL が `index.html` のような fallback payload を返すことがあります。現在は `.bin` shard asset と patched manifest を使います。
 - shard が `3652 bytes` 前後しか読めていない場合は明らかに異常です。正しい `tiny_face_detector_model-shard1.bin` は `193321 bytes`、`face_expression_model-shard1.bin` は `329468 bytes` です。
 - Xcode の Devices and Simulators Console では `EMOTION_RUNNER_NATIVE_DIAG` と `EMOTION_RUNNER_NATIVE_STAGE` で検索します。
-- Game Center準備レイヤーの確認では `EMOTION_RUNNER_GAME_SERVICES` を検索します。Build 15では native GameKit へ接続せず、local adapter が `submit-score-local` / `report-achievement-local` を出します。
+- Game Center の確認では Xcode Console で `EMOTION_RUNNER_GAMECENTER` を検索します。native plugin 登録、authenticate、submit score、report achievement、leaderboard表示の結果を追えます。
 - TestFlight へ再アップロードするたびに `CURRENT_PROJECT_VERSION` を増やします。
 - Build 19 は result / non-run UI / audio polish build です。結果画面はDOMベースのカードで、スコア、ランク、最大コンボ、今日のベスト、最高スコア、獲得コイン、ミッション、実績を読みやすく確認します。
+- Build 20 は readable scale / scroll-safe UI / Game Center bridge / gameplay tuning build です。結果画面と非プレイ画面は縮小しすぎず、短い横画面では内容をスクロールして操作できます。
 - Build 19 では `設定とデータ` に BGM / 効果音のオンオフと音量スライダーがあります。設定は `localStorage` に保存され、音声ファイルが無くてもクラッシュしません。
 - BGM / 効果音は `public/audio/` 配下のローカルファイルだけを参照します。CDN は使いません。詳しくは `docs/AUDIO_ASSETS.md` を確認してください。
 - iOS では音声はユーザー操作後に解放されます。初回タップ前に自動再生されないこと、タップ後にタイトル / gameplay / result / gacha BGM が切り替わることを確認します。
@@ -132,7 +133,16 @@ PNG アイテムを追加する場合は、画像を以下のいずれかに配�
 
 詳細なファイル一覧と追加手順は `docs/COSMETIC_ASSETS.md` にまとめています。
 
-## Game Center identifiers planned for a future build
+## Game Center setup
+
+Build 20 では iOS native plugin と Game Center entitlement を追加しています。Archive / TestFlight で実際にランキングと実績を使うには、App Store Connect と Xcode の設定が必要です。詳細は `docs/GAME_CENTER.md` も確認してください。
+
+1. Xcode target `App` → `Signing & Capabilities` で `Game Center` が有効になっていることを確認します。
+2. App Store Connect → App → Features / Game Center で leaderboard と achievements を作成します。
+3. 下記 ID を App Store Connect 側にも同じ文字列で登録します。
+4. Game Center が未設定・未ログイン・利用不可の場合、アプリは `ローカル記録のみ表示中` として安全に動作します。
+
+## Game Center identifiers
 
 - Leaderboard: `leaderboard.best_score`
 - Achievement: `achievement.first_play`

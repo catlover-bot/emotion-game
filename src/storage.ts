@@ -87,6 +87,7 @@ export function clearAppStorage(): void {
     window.localStorage.removeItem(CONTROL_MODE_KEY);
     window.localStorage.removeItem(EXPRESSION_SENSITIVITY_KEY);
     window.localStorage.removeItem("emotion_game_all_time_max_combo");
+    window.localStorage.removeItem("emotion-game.expression-nav-hints-visible");
 
     const keysToRemove: string[] = [];
     for (let i = 0; i < window.localStorage.length; i += 1) {

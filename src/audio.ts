@@ -5,6 +5,7 @@ export type SfxKey =
   | "jump"
   | "attack"
   | "boost"
+  | "feverStart"
   | "gachaReveal"
   | "missionClear"
   | "achievement"
@@ -40,6 +41,7 @@ const SFX_PATHS: Record<SfxKey, string> = {
   jump: "./audio/sfx/jump.mp3",
   attack: "./audio/sfx/attack.mp3",
   boost: "./audio/sfx/boost.mp3",
+  feverStart: "./audio/sfx/fever_start.mp3",
   gachaReveal: "./audio/sfx/gacha_reveal.mp3",
   missionClear: "./audio/sfx/mission_clear.mp3",
   achievement: "./audio/sfx/achievement.mp3",

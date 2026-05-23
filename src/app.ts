@@ -32,6 +32,14 @@ import {
   type AudioSettings,
   type BgmTrack,
 } from "./audio";
+import {
+  authenticate as authenticateGameCenter,
+  getStatus as getGameCenterStatus,
+  refreshStatus as refreshGameCenterStatus,
+  showAchievements as showGameCenterAchievements,
+  showLeaderboard as showGameCenterLeaderboard,
+  type GameCenterStatus,
+} from "./gameCenter";
 
 export type StartupReporter = {
   setStage(stage: string, detail?: string): void;
@@ -176,6 +184,7 @@ export async function startApp(startup: StartupReporter) {
   let controlMode: ControlMode = loadControlMode();
   let expressionSensitivity: ExpressionSensitivity = loadExpressionSensitivity();
   let audioSettings: AudioSettings = loadAudioSettings();
+  let gameCenterStatus: GameCenterStatus = getGameCenterStatus();
   let cameraState: CameraUiState = "idle";
   let lastCameraDiagnostics: CameraDiagnostics | null = null;
   let faceLoopStarted = false;
@@ -215,7 +224,8 @@ export async function startApp(startup: StartupReporter) {
     }
 
     if (snapshot.lastActionText && snapshot.lastActionText !== lastSnapshotActionText) {
-      if (snapshot.lastActionText.includes("ジャンプ")) audio.playSfx("jump", 130);
+      if (snapshot.lastActionText.includes("フィーバー")) audio.playSfx("feverStart", 900);
+      else if (snapshot.lastActionText.includes("ジャンプ")) audio.playSfx("jump", 130);
       else if (snapshot.lastActionText.includes("アタック") || snapshot.lastActionText.includes("攻撃")) audio.playSfx("attack", 130);
       else if (snapshot.lastActionText.includes("ブースト")) audio.playSfx("boost", 160);
     }
@@ -239,6 +249,11 @@ export async function startApp(startup: StartupReporter) {
       audio.playSfx("gachaReveal", 500);
     }
     lastSnapshotGachaResultKey = gachaResultKey;
+  }
+
+  function setGameCenterStatus(status: GameCenterStatus) {
+    gameCenterStatus = status;
+    appShell?.setGameCenterStatus(gameCenterStatus);
   }
 
   startup.setStage("shell-rendered", "初回画面を表示しています…");
@@ -281,6 +296,7 @@ export async function startApp(startup: StartupReporter) {
       audio.unlock();
       audio.playSfx("confirm");
       game?.openRanking();
+      void refreshGameCenterStatus().then(setGameCenterStatus);
     },
     onBackToTitle() {
       audio.unlock();
@@ -377,6 +393,32 @@ export async function startApp(startup: StartupReporter) {
       audio.setSettings(settings);
       appShell.setAudioSettings(audioSettings);
     },
+    onSetExpressionNavHintsVisible(visible) {
+      audio.playSfx("confirm");
+      appShell.setExpressionNavHintsVisible(visible);
+    },
+    onConnectGameCenter() {
+      audio.unlock();
+      audio.playSfx("confirm");
+      setGameCenterStatus({
+        ...gameCenterStatus,
+        available: true,
+        usingNative: true,
+        connectionState: "connecting",
+        message: "Game Centerに接続しています…",
+      });
+      void authenticateGameCenter().then(setGameCenterStatus);
+    },
+    onShowGameCenterLeaderboard() {
+      audio.unlock();
+      audio.playSfx("confirm");
+      void showGameCenterLeaderboard().then(setGameCenterStatus);
+    },
+    onShowGameCenterAchievements() {
+      audio.unlock();
+      audio.playSfx("confirm");
+      void showGameCenterAchievements().then(setGameCenterStatus);
+    },
     onUserGesture() {
       audio.unlock();
     },
@@ -396,6 +438,8 @@ export async function startApp(startup: StartupReporter) {
   appShell.setControlMode(controlMode);
   appShell.setExpressionSensitivity(expressionSensitivity);
   appShell.setAudioSettings(audioSettings);
+  appShell.setGameCenterStatus(gameCenterStatus);
+  void refreshGameCenterStatus().then(setGameCenterStatus);
 
   function hasMeaningfulUiContent() {
     const rect = uiRoot.getBoundingClientRect();

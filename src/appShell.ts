@@ -4,6 +4,7 @@ import type { ControlMode, Expression, ExpressionSensitivity } from "./types";
 import type { GameAction, GameSnapshot } from "./game";
 import type { Rarity } from "./cosmetics";
 import type { AudioSettings } from "./audio";
+import type { GameCenterStatus } from "./gameCenter";
 
 export type CameraUiState =
   | "idle"
@@ -52,6 +53,10 @@ type AppShellOptions = {
   onSetControlMode(mode: ControlMode): void;
   onSetExpressionSensitivity(sensitivity: ExpressionSensitivity): void;
   onSetAudioSettings(settings: AudioSettings): void;
+  onSetExpressionNavHintsVisible(visible: boolean): void;
+  onConnectGameCenter(): void;
+  onShowGameCenterLeaderboard(): void;
+  onShowGameCenterAchievements(): void;
   onUserGesture(): void;
   onOverlayChanged(): void;
   onResetTutorial(): void;
@@ -78,6 +83,8 @@ type AppShellState = {
   settingsNotice: string;
   settingsDiagnosticsExpanded: boolean;
   audioSettings: AudioSettings;
+  gameCenterStatus: GameCenterStatus;
+  expressionNavHintsVisible: boolean;
   expressionNavFocusIndex: number;
   expressionNavExpression: Expression | null;
   expressionNavHoldStartedAt: number;
@@ -98,6 +105,7 @@ const NAV_CONFIRM_HOLD_MS = 700;
 const NAV_NEXT_HOLD_MS = 500;
 const NAV_BACK_HOLD_MS = 500;
 const NAV_TRIGGER_COOLDOWN_MS = 420;
+const EXPRESSION_NAV_HINTS_KEY = "emotion-game.expression-nav-hints-visible";
 
 const EXPRESSION_COPY: Record<
   TutorialExpression,
@@ -203,6 +211,13 @@ function getRarityClass(rarity: Rarity): string {
   return `rarity-${rarity}`;
 }
 
+function getGameCenterStateLabel(status: GameCenterStatus): string {
+  if (status.connectionState === "connecting") return "Game Center接続中";
+  if (status.authenticated) return "Game Center接続済み";
+  if (status.available && status.usingNative) return "Game Center未接続";
+  return "ローカル記録のみ表示中";
+}
+
 function getCosmeticCategoryLabel(type: "character" | "background" | "item"): string {
   switch (type) {
     case "background":
@@ -284,6 +299,24 @@ function getControlModeCopy(cameraState: CameraUiState, controlMode: ControlMode
   };
 }
 
+function loadExpressionNavHintsVisible(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.localStorage.getItem(EXPRESSION_NAV_HINTS_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function saveExpressionNavHintsVisible(visible: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(EXPRESSION_NAV_HINTS_KEY, visible ? "true" : "false");
+  } catch {
+    // Visual hint preference is non-critical.
+  }
+}
+
 export type AppShell = ReturnType<typeof createAppShell>;
 
 export function createAppShell(options: AppShellOptions) {
@@ -315,6 +348,15 @@ export function createAppShell(options: AppShellOptions) {
       bgmVolume: 0.45,
       sfxVolume: 0.62,
     },
+    gameCenterStatus: {
+      available: false,
+      authenticated: false,
+      usingNative: false,
+      connectionState: "local",
+      playerName: "",
+      message: "ローカル記録を表示しています。",
+    },
+    expressionNavHintsVisible: loadExpressionNavHintsVisible(),
     expressionNavFocusIndex: 0,
     expressionNavExpression: null,
     expressionNavHoldStartedAt: 0,
@@ -939,6 +981,20 @@ export function createAppShell(options: AppShellOptions) {
     `;
   }
 
+  function getExpressionNavSettingsHtml() {
+    return `
+      <div class="settings-section compact-settings-section">
+        <strong>表情ナビ</strong>
+        <button
+          type="button"
+          data-action="toggle-expression-nav-hints"
+          class="mode-button ${state.expressionNavHintsVisible ? "is-active" : ""}"
+        >ヒント表示 ${state.expressionNavHintsVisible ? "オン" : "オフ"}</button>
+        <small>表情だけで操作するときの案内です。邪魔なときは小さな表示だけにできます。</small>
+      </div>
+    `;
+  }
+
   function getExpressionNavHintHtml() {
     if (!isExpressionNavigationActive()) return "";
     const progress = Math.round(state.expressionNavHoldProgress * 100);
@@ -950,10 +1006,18 @@ export function createAppShell(options: AppShellOptions) {
       game?.scene === "customize" ? "is-customize-scene" : "",
       game?.scene === "gacha" ? "is-gacha-scene" : "",
       game?.scene === "play" && game.gameOver ? "is-result-scene" : "",
-      "expression-nav-hidden-on-small",
+      state.expressionNavHintsVisible ? "" : "is-preference-collapsed",
     ]
       .filter(Boolean)
       .join(" ");
+    if (!state.expressionNavHintsVisible) {
+      return `
+        <div class="${classes}">
+          <strong>表情操作中</strong>
+          <div class="expression-nav-meter"><i style="width: ${progress}%"></i></div>
+        </div>
+      `;
+    }
     return `
       <div class="${classes}">
         <strong>表情ナビ</strong>
@@ -1232,56 +1296,58 @@ export function createAppShell(options: AppShellOptions) {
     return `
       <section class="result-overlay">
         <div class="result-card">
-          <div class="result-hero">
-            <div class="result-score-block">
-              <span class="result-record-badge">${escapeHtml(recordBadge)}</span>
-              <span>スコア</span>
-              <strong>${game.score}</strong>
-              <em>${escapeHtml(game.rank)}</em>
-            </div>
-            <div class="result-preview-stack">
-              ${getCosmeticPreviewHtml({
-                image: game.bgImage,
-                name: game.bgName,
-                rarity: game.bgRarity,
-                variant: "background",
-              })}
-              <div class="result-character-preview">
+          <div class="result-scroll-area">
+            <div class="result-hero">
+              <div class="result-score-block">
+                <span class="result-record-badge">${escapeHtml(recordBadge)}</span>
+                <span>スコア</span>
+                <strong>${game.score}</strong>
+                <em>${escapeHtml(game.rank)}</em>
+              </div>
+              <div class="result-preview-stack">
                 ${getCosmeticPreviewHtml({
-                  image: game.charImage,
-                  name: game.charName,
-                  rarity: game.charRarity,
-                  variant: "character",
+                  image: game.bgImage,
+                  name: game.bgName,
+                  rarity: game.bgRarity,
+                  variant: "background",
                 })}
-                ${game.itemName !== "アクセなし"
-                  ? getCosmeticPreviewHtml({
-                      image: game.itemImage,
-                      name: game.itemName,
-                      rarity: game.itemRarity,
-                      variant: "item",
-                    })
-                  : ""}
+                <div class="result-character-preview">
+                  ${getCosmeticPreviewHtml({
+                    image: game.charImage,
+                    name: game.charName,
+                    rarity: game.charRarity,
+                    variant: "character",
+                  })}
+                  ${game.itemName !== "アクセなし"
+                    ? getCosmeticPreviewHtml({
+                        image: game.itemImage,
+                        name: game.itemName,
+                        rarity: game.itemRarity,
+                        variant: "item",
+                      })
+                    : ""}
+                </div>
               </div>
             </div>
-          </div>
 
-          <div class="result-stat-grid">
-            <div><span>最大コンボ</span><strong>×${game.maxCombo}</strong></div>
-            <div><span>今日のベスト</span><strong>${game.dailyBest}</strong></div>
-            <div><span>最高スコア</span><strong>${game.allTimeBest}</strong></div>
-            <div><span>最高コンボ</span><strong>×${game.allTimeMaxCombo}</strong></div>
-            <div><span>獲得コイン</span><strong>+${game.coinsEarned}</strong></div>
-            <div><span>操作モード</span><strong>${escapeHtml(game.controlModeLabel)}</strong></div>
-          </div>
-
-          <div class="result-reward-row">
-            <div class="result-mission-card ${game.missionCompleted ? "is-complete" : ""}">
-              <span>今日のミッション</span>
-              <strong>${escapeHtml(missionLabel)}</strong>
+            <div class="result-stat-grid">
+              <div><span>最大コンボ</span><strong>×${game.maxCombo}</strong></div>
+              <div><span>今日のベスト</span><strong>${game.dailyBest}</strong></div>
+              <div><span>最高スコア</span><strong>${game.allTimeBest}</strong></div>
+              <div><span>最高コンボ</span><strong>×${game.allTimeMaxCombo}</strong></div>
+              <div><span>獲得コイン</span><strong>+${game.coinsEarned}</strong></div>
+              <div><span>操作モード</span><strong>${escapeHtml(game.controlModeLabel)}</strong></div>
             </div>
-            <div class="result-achievement-card">
-              <span>実績</span>
-              <div class="result-badges">${achievementBadges}</div>
+
+            <div class="result-reward-row">
+              <div class="result-mission-card ${game.missionCompleted ? "is-complete" : ""}">
+                <span>今日のミッション</span>
+                <strong>${escapeHtml(missionLabel)}</strong>
+              </div>
+              <div class="result-achievement-card">
+                <span>実績</span>
+                <div class="result-badges">${achievementBadges}</div>
+              </div>
             </div>
           </div>
 
@@ -1604,6 +1670,7 @@ export function createAppShell(options: AppShellOptions) {
           </div>
 
           ${getAudioSettingsHtml()}
+          ${getExpressionNavSettingsHtml()}
 
           <div class="menu-grid single utility-grid">
             <button type="button" data-action="open-camera-overlay" class="secondary-button">カメラを再確認</button>
@@ -1625,6 +1692,8 @@ export function createAppShell(options: AppShellOptions) {
   function getRankingHtml() {
     const game = state.game;
     if (!game) return "";
+    const gameCenter = state.gameCenterStatus;
+    const canOpenGameCenter = gameCenter.available && gameCenter.authenticated;
 
     return `
       <section class="modal-screen">
@@ -1632,7 +1701,7 @@ export function createAppShell(options: AppShellOptions) {
           <div class="panel-header">
             <div>
               <span class="eyebrow">ランキング</span>
-              <h2>ローカルランキング</h2>
+              <h2>ランキング</h2>
             </div>
             <button type="button" data-action="close-overlay" class="ghost-button">閉じる</button>
           </div>
@@ -1656,9 +1725,24 @@ export function createAppShell(options: AppShellOptions) {
             </div>
           </div>
 
-          <div class="expression-status">
-            <strong>Game Centerランキングは次のアップデートで対応予定です。</strong>
-            <span>Build 15ではローカル記録と実績イベントを保存し、Game Center連携を安全に接続できる形にしています。</span>
+          <div class="game-center-card ${gameCenter.authenticated ? "is-connected" : ""}">
+            <div>
+              <strong>${escapeHtml(getGameCenterStateLabel(gameCenter))}</strong>
+              <span>${escapeHtml(gameCenter.message)}</span>
+              ${
+                gameCenter.playerName
+                  ? `<em>プレイヤー: ${escapeHtml(gameCenter.playerName)}</em>`
+                  : ""
+              }
+            </div>
+            <div class="game-center-actions">
+              <button type="button" data-action="connect-game-center" class="secondary-button">
+                ${gameCenter.authenticated ? "再接続" : "Game Center接続"}
+              </button>
+              <button type="button" data-action="show-game-center-leaderboard" class="secondary-button" ${canOpenGameCenter ? "" : "disabled"}>ランキングを表示</button>
+              <button type="button" data-action="show-game-center-achievements" class="ghost-button" ${canOpenGameCenter ? "" : "disabled"}>実績を表示</button>
+            </div>
+            <small>接続できない場合も、最高スコア・実績・ミッションは端末内に保存されます。</small>
           </div>
 
           <div class="button-row">
@@ -1849,6 +1933,18 @@ export function createAppShell(options: AppShellOptions) {
               sfxEnabled: !state.audioSettings.sfxEnabled,
             });
             break;
+          case "toggle-expression-nav-hints":
+            options.onSetExpressionNavHintsVisible(!state.expressionNavHintsVisible);
+            break;
+          case "connect-game-center":
+            options.onConnectGameCenter();
+            break;
+          case "show-game-center-leaderboard":
+            options.onShowGameCenterLeaderboard();
+            break;
+          case "show-game-center-achievements":
+            options.onShowGameCenterAchievements();
+            break;
           case "touch-jump":
             options.onTouchAction("jump");
             break;
@@ -2001,6 +2097,15 @@ export function createAppShell(options: AppShellOptions) {
     },
     setAudioSettings(settings: AudioSettings) {
       state.audioSettings = settings;
+      render();
+    },
+    setExpressionNavHintsVisible(visible: boolean) {
+      state.expressionNavHintsVisible = visible;
+      saveExpressionNavHintsVisible(visible);
+      render();
+    },
+    setGameCenterStatus(status: GameCenterStatus) {
+      state.gameCenterStatus = status;
       render();
     },
     showOnboarding() {

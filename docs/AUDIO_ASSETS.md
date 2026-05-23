@@ -28,6 +28,7 @@ public/audio/sfx/back.mp3
 public/audio/sfx/jump.mp3
 public/audio/sfx/attack.mp3
 public/audio/sfx/boost.mp3
+public/audio/sfx/fever_start.mp3
 public/audio/sfx/gacha_reveal.mp3
 public/audio/sfx/mission_clear.mp3
 public/audio/sfx/achievement.mp3

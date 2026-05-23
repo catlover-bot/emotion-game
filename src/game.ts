@@ -50,7 +50,6 @@ import {
 } from "./achievements";
 import {
   reportAchievement,
-  showLeaderboard,
   submitScore,
 } from "./gameCenter";
 import { getLoadedCosmeticImage } from "./cosmeticAssets";
@@ -459,6 +458,17 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     combo += 1;
     if (combo > maxCombo) maxCombo = combo;
     feverGauge += inFever ? 2.1 : 4.1;
+    if (combo > 0 && combo % 10 === 0) {
+      const bonusCoins = Math.min(14, 4 + Math.floor(combo / 10) * 2);
+      lastCoinsEarned += bonusCoins;
+      lastCoinsEarnedTick = tick;
+      updateCosmetics({
+        ...cosmetics,
+        coins: cosmetics.coins + bonusCoins,
+      });
+      spawnLikeShower(playerX + 40, playerY - 70);
+      setActionFeedback(`${combo}コンボ！ +${bonusCoins}コイン`);
+    }
     if (feverGauge >= 100 && !inFever) {
       inFever = true;
       feverGauge = 100;
@@ -674,12 +684,13 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     const r = 20 + rng() * 18;
     const gY = groundY();
     const elapsed = Math.max(0, tick - runStartTick);
-    const ramp = Math.min(1.8, Math.max(0, elapsed - 900) / 1500);
+    const earlyEase = elapsed < 900 ? 0.55 : 1;
+    const ramp = Math.min(1.65, Math.max(0, elapsed - 1080) / 1700);
     bombs.push({
       x: width() + r + 10,
       y: gY,
-      vx: -(2.45 + rng() * 1.35 + ramp + (inFever ? 0.9 : 0)),
-      radius: r,
+      vx: -((2.18 + rng() * 1.15) * earlyEase + ramp + (inFever ? 0.82 : 0)),
+      radius: elapsed < 600 ? Math.max(16, r - 7) : r,
       alive: true,
     });
   }
@@ -1384,18 +1395,21 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
     const elapsed = Math.max(0, tick - runStartTick);
 
-    if (elapsed < 100) {
+    if (elapsed < 150) {
       if (elapsed === 45) {
         spawnStar(width() + 30, groundY() - 150);
+      }
+      if (elapsed === 105) {
+        spawnStar(width() + 120, groundY() - 120);
       }
       return;
     }
 
     // 爆弾スポーン
-    const baseInterval = elapsed < 900 ? 96 : inFever ? 46 : 78;
-    const rampPenalty = Math.floor(Math.max(0, elapsed - 900) / 480);
+    const baseInterval = elapsed < 900 ? 122 : elapsed < 1500 ? 96 : inFever ? 48 : 78;
+    const rampPenalty = Math.floor(Math.max(0, elapsed - 1100) / 560);
     const scorePenalty = Math.floor(score / 2400);
-    const interval = Math.max(34, baseInterval - rampPenalty - scorePenalty);
+    const interval = Math.max(38, baseInterval - rampPenalty - scorePenalty);
     if (elapsed % interval === 0) {
       spawnBomb();
     }
@@ -1732,7 +1746,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     },
     equipLastGachaResult,
     openRanking() {
-      void showLeaderboard();
+      markSnapshotDirty();
     },
     triggerAction(action: GameAction) {
       switch (action) {
