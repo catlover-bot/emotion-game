@@ -3,7 +3,7 @@ import type { ExpressionStatus } from "./expressionEngine";
 import type { ControlMode, Expression, ExpressionSensitivity } from "./types";
 import type { GameAction, GameSnapshot } from "./game";
 import type { Rarity } from "./cosmetics";
-import type { AudioSettings } from "./audio";
+import type { AudioRuntimeStatus, AudioSettings } from "./audio";
 import type { GameCenterStatus } from "./gameCenter";
 
 export type CameraUiState =
@@ -52,7 +52,9 @@ type AppShellOptions = {
   onTouchAction(action: GameAction): void;
   onSetControlMode(mode: ControlMode): void;
   onSetExpressionSensitivity(sensitivity: ExpressionSensitivity): void;
-  onSetAudioSettings(settings: AudioSettings): void;
+  onSetAudioSettings(settings: AudioSettings, options?: { render: boolean }): void;
+  onTestBgm(): void;
+  onTestSfx(): void;
   onSetExpressionNavHintsVisible(visible: boolean): void;
   onConnectGameCenter(): void;
   onShowGameCenterLeaderboard(): void;
@@ -83,7 +85,10 @@ type AppShellState = {
   settingsNotice: string;
   settingsDiagnosticsExpanded: boolean;
   audioSettings: AudioSettings;
+  audioStatus: AudioRuntimeStatus;
+  audioNotice: string;
   gameCenterStatus: GameCenterStatus;
+  gameCenterDiagnosticsCopied: boolean;
   expressionNavHintsVisible: boolean;
   expressionNavFocusIndex: number;
   expressionNavExpression: Expression | null;
@@ -218,6 +223,19 @@ function getGameCenterStateLabel(status: GameCenterStatus): string {
   return "ローカル記録のみ表示中";
 }
 
+function getAudioSourceLabel(source: AudioRuntimeStatus["bgmSource"]): string {
+  switch (source) {
+    case "file":
+      return "音声ファイル";
+    case "procedural":
+      return "内蔵テスト音源";
+    case "disabled":
+      return "無効";
+    default:
+      return "未確認";
+  }
+}
+
 function getCosmeticCategoryLabel(type: "character" | "background" | "item"): string {
   switch (type) {
     case "background":
@@ -348,14 +366,29 @@ export function createAppShell(options: AppShellOptions) {
       bgmVolume: 0.45,
       sfxVolume: 0.62,
     },
+    audioStatus: {
+      unlocked: false,
+      contextState: "suspended",
+      bgmSource: "unchecked",
+      sfxSource: "unchecked",
+      currentTrack: null,
+      lastMessage: "音声はまだ確認されていません。",
+    },
+    audioNotice: "",
     gameCenterStatus: {
       available: false,
       authenticated: false,
       usingNative: false,
       connectionState: "local",
       playerName: "",
+      playerGamePlayerID: "",
       message: "ローカル記録を表示しています。",
+      lastErrorCode: "",
+      lastErrorMessage: "",
+      supportsGameCenterBridge: false,
+      entitlementDetected: "unknown",
     },
+    gameCenterDiagnosticsCopied: false,
     expressionNavHintsVisible: loadExpressionNavHintsVisible(),
     expressionNavFocusIndex: 0,
     expressionNavExpression: null,
@@ -386,6 +419,32 @@ export function createAppShell(options: AppShellOptions) {
         if (button.offsetParent === null) return false;
         return true;
       });
+  }
+
+  function getGameCenterDiagnosticsText(): string {
+    return JSON.stringify(
+      {
+        status: state.gameCenterStatus,
+        href: window.location.href,
+        userAgent: navigator.userAgent,
+      },
+      null,
+      2,
+    );
+  }
+
+  async function copyGameCenterDiagnostics() {
+    try {
+      await navigator.clipboard?.writeText(getGameCenterDiagnosticsText());
+      state.gameCenterDiagnosticsCopied = true;
+      state.settingsNotice = "";
+      render();
+    } catch {
+      console.info("EMOTION_RUNNER_GAMECENTER diagnostics-copy-fallback", getGameCenterDiagnosticsText());
+      state.gameCenterDiagnosticsCopied = false;
+      state.settingsNotice = "診断情報をコピーできませんでした。Xcode Console の EMOTION_RUNNER_GAMECENTER を確認してください。";
+      render();
+    }
   }
 
   function applyExpressionFocus() {
@@ -953,9 +1012,21 @@ export function createAppShell(options: AppShellOptions) {
   function getAudioSettingsHtml() {
     const bgmPercent = Math.round(state.audioSettings.bgmVolume * 100);
     const sfxPercent = Math.round(state.audioSettings.sfxVolume * 100);
+    const audioEnabled = state.audioSettings.bgmEnabled || state.audioSettings.sfxEnabled;
+    const statusText = [
+      `音声: ${audioEnabled ? "有効" : "無効"}`,
+      `BGM音源: ${getAudioSourceLabel(state.audioStatus.bgmSource)}`,
+      `効果音: ${getAudioSourceLabel(state.audioStatus.sfxSource)}`,
+      `AudioContext: ${state.audioStatus.contextState}`,
+    ].join(" / ");
+    const notice = state.audioNotice || state.audioStatus.lastMessage;
     return `
       <div class="settings-section audio-settings-section">
         <strong>サウンド</strong>
+        <div class="audio-status-card">
+          <span>${escapeHtml(statusText)}</span>
+          <small>${escapeHtml(notice)}</small>
+        </div>
         <div class="audio-toggle-grid">
           <button
             type="button"
@@ -969,14 +1040,18 @@ export function createAppShell(options: AppShellOptions) {
           >効果音 ${state.audioSettings.sfxEnabled ? "オン" : "オフ"}</button>
         </div>
         <label class="audio-slider">
-          <span>BGM音量 <b>${bgmPercent}%</b></span>
+          <span>BGM音量 <b data-audio-volume-label="bgm">${bgmPercent}%</b></span>
           <input type="range" min="0" max="100" value="${bgmPercent}" data-audio-volume="bgm" />
         </label>
         <label class="audio-slider">
-          <span>効果音音量 <b>${sfxPercent}%</b></span>
+          <span>効果音音量 <b data-audio-volume-label="sfx">${sfxPercent}%</b></span>
           <input type="range" min="0" max="100" value="${sfxPercent}" data-audio-volume="sfx" />
         </label>
-        <small>音声ファイルが未配置でもゲームはそのまま遊べます。音は最初のタップ後に再生されます。</small>
+        <div class="audio-test-row">
+          <button type="button" data-action="test-bgm" class="secondary-button">BGMテスト</button>
+          <button type="button" data-action="test-sfx" class="secondary-button">効果音テスト</button>
+        </div>
+        <small>音声ファイルが未配置でも内蔵テスト音源で確認できます。聞こえない場合はiPhoneの消音モードや本体音量も確認してください。</small>
       </div>
     `;
   }
@@ -1730,6 +1805,11 @@ export function createAppShell(options: AppShellOptions) {
               <strong>${escapeHtml(getGameCenterStateLabel(gameCenter))}</strong>
               <span>${escapeHtml(gameCenter.message)}</span>
               ${
+                gameCenter.lastErrorMessage
+                  ? `<span class="warning-text">最後のエラー: ${escapeHtml(gameCenter.lastErrorMessage)}</span>`
+                  : ""
+              }
+              ${
                 gameCenter.playerName
                   ? `<em>プレイヤー: ${escapeHtml(gameCenter.playerName)}</em>`
                   : ""
@@ -1741,7 +1821,13 @@ export function createAppShell(options: AppShellOptions) {
               </button>
               <button type="button" data-action="show-game-center-leaderboard" class="secondary-button" ${canOpenGameCenter ? "" : "disabled"}>ランキングを表示</button>
               <button type="button" data-action="show-game-center-achievements" class="ghost-button" ${canOpenGameCenter ? "" : "disabled"}>実績を表示</button>
+              <button type="button" data-action="copy-game-center-diagnostics" class="ghost-button">診断情報をコピー</button>
             </div>
+            ${
+              state.gameCenterDiagnosticsCopied
+                ? `<small>診断情報をコピーしました。</small>`
+                : ""
+            }
             <small>接続できない場合も、最高スコア・実績・ミッションは端末内に保存されます。</small>
           </div>
 
@@ -1933,6 +2019,16 @@ export function createAppShell(options: AppShellOptions) {
               sfxEnabled: !state.audioSettings.sfxEnabled,
             });
             break;
+          case "test-bgm":
+            state.audioNotice = "BGMをテスト再生しています…";
+            render();
+            options.onTestBgm();
+            break;
+          case "test-sfx":
+            state.audioNotice = "効果音をテスト再生しています…";
+            render();
+            options.onTestSfx();
+            break;
           case "toggle-expression-nav-hints":
             options.onSetExpressionNavHintsVisible(!state.expressionNavHintsVisible);
             break;
@@ -1944,6 +2040,9 @@ export function createAppShell(options: AppShellOptions) {
             break;
           case "show-game-center-achievements":
             options.onShowGameCenterAchievements();
+            break;
+          case "copy-game-center-diagnostics":
+            copyGameCenterDiagnostics();
             break;
           case "touch-jump":
             options.onTouchAction("jump");
@@ -1962,10 +2061,15 @@ export function createAppShell(options: AppShellOptions) {
       input.addEventListener("input", () => {
         options.onUserGesture();
         const value = Math.max(0, Math.min(1, Number(input.value) / 100));
+        const rounded = Math.round(value * 100);
         if (input.dataset.audioVolume === "bgm") {
-          options.onSetAudioSettings({ ...state.audioSettings, bgmVolume: value });
+          state.audioSettings = { ...state.audioSettings, bgmVolume: value };
+          root.querySelector<HTMLElement>('[data-audio-volume-label="bgm"]')?.replaceChildren(`${rounded}%`);
+          options.onSetAudioSettings(state.audioSettings, { render: false });
         } else if (input.dataset.audioVolume === "sfx") {
-          options.onSetAudioSettings({ ...state.audioSettings, sfxVolume: value });
+          state.audioSettings = { ...state.audioSettings, sfxVolume: value };
+          root.querySelector<HTMLElement>('[data-audio-volume-label="sfx"]')?.replaceChildren(`${rounded}%`);
+          options.onSetAudioSettings(state.audioSettings, { render: false });
         }
       });
     });
@@ -2097,6 +2201,11 @@ export function createAppShell(options: AppShellOptions) {
     },
     setAudioSettings(settings: AudioSettings) {
       state.audioSettings = settings;
+      render();
+    },
+    setAudioStatus(status: AudioRuntimeStatus, notice = "") {
+      state.audioStatus = status;
+      state.audioNotice = notice;
       render();
     },
     setExpressionNavHintsVisible(visible: boolean) {

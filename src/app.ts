@@ -256,12 +256,18 @@ export async function startApp(startup: StartupReporter) {
     appShell?.setGameCenterStatus(gameCenterStatus);
   }
 
+  function unlockAudioAfterGesture() {
+    void audio.unlock().then((status) => {
+      appShell.setAudioStatus(status);
+    });
+  }
+
   startup.setStage("shell-rendered", "初回画面を表示しています…");
 
   const appShell = createAppShell({
     root: uiRoot,
     onStartGame() {
-      audio.unlock();
+      unlockAudioAfterGesture();
       if (!game) return;
 
       if (!tutorialComplete) {
@@ -277,7 +283,7 @@ export async function startApp(startup: StartupReporter) {
       routeExpression();
     },
     onOpenCustomize() {
-      audio.unlock();
+      unlockAudioAfterGesture();
       audio.playSfx("confirm");
       if (!game) return;
       appShell.closeOverlay();
@@ -285,7 +291,7 @@ export async function startApp(startup: StartupReporter) {
       routeExpression();
     },
     onOpenGacha() {
-      audio.unlock();
+      unlockAudioAfterGesture();
       audio.playSfx("confirm");
       if (!game) return;
       appShell.closeOverlay();
@@ -293,13 +299,13 @@ export async function startApp(startup: StartupReporter) {
       routeExpression();
     },
     onOpenRanking() {
-      audio.unlock();
+      unlockAudioAfterGesture();
       audio.playSfx("confirm");
       game?.openRanking();
       void refreshGameCenterStatus().then(setGameCenterStatus);
     },
     onBackToTitle() {
-      audio.unlock();
+      unlockAudioAfterGesture();
       audio.playSfx("back");
       if (!game) return;
       pendingStartAfterTutorial = false;
@@ -332,7 +338,7 @@ export async function startApp(startup: StartupReporter) {
       void game?.share();
     },
     onRetryGame() {
-      audio.unlock();
+      unlockAudioAfterGesture();
       audio.playSfx("confirm");
       if (!game) return;
       appShell.closeOverlay();
@@ -340,12 +346,12 @@ export async function startApp(startup: StartupReporter) {
       routeExpression();
     },
     onEnableCamera() {
-      audio.unlock();
+      unlockAudioAfterGesture();
       audio.playSfx("confirm");
       void enableCamera();
     },
     onContinueWithoutCamera() {
-      audio.unlock();
+      unlockAudioAfterGesture();
       audio.playSfx("confirm");
       finishOnboarding();
       pendingStartAfterTutorial = false;
@@ -357,7 +363,7 @@ export async function startApp(startup: StartupReporter) {
       routeExpression();
     },
     onCloseOverlay() {
-      audio.unlock();
+      unlockAudioAfterGesture();
       audio.playSfx("back");
       if (appShell.getOverlay() === "onboarding") {
         finishOnboarding();
@@ -367,7 +373,7 @@ export async function startApp(startup: StartupReporter) {
       routeExpression();
     },
     onFinishTutorial() {
-      audio.unlock();
+      unlockAudioAfterGesture();
       audio.playSfx("confirm");
       tutorialComplete = true;
       saveTutorialComplete(true);
@@ -379,7 +385,7 @@ export async function startApp(startup: StartupReporter) {
       routeExpression();
     },
     onTouchAction(action) {
-      audio.unlock();
+      unlockAudioAfterGesture();
       game?.triggerAction(action);
     },
     onSetControlMode(mode) {
@@ -388,17 +394,30 @@ export async function startApp(startup: StartupReporter) {
     onSetExpressionSensitivity(sensitivity) {
       setExpressionSensitivity(sensitivity);
     },
-    onSetAudioSettings(settings) {
+    onSetAudioSettings(settings, options) {
       audioSettings = settings;
       audio.setSettings(settings);
-      appShell.setAudioSettings(audioSettings);
+      if (options?.render !== false) {
+        appShell.setAudioSettings(audioSettings);
+        appShell.setAudioStatus(audio.getStatus());
+      }
+    },
+    onTestBgm() {
+      void audio.testBgm(lastBgmTrack ?? "title").then((result) => {
+        appShell.setAudioStatus(result, result.message);
+      });
+    },
+    onTestSfx() {
+      void audio.testSfx("confirm").then((result) => {
+        appShell.setAudioStatus(result, result.message);
+      });
     },
     onSetExpressionNavHintsVisible(visible) {
       audio.playSfx("confirm");
       appShell.setExpressionNavHintsVisible(visible);
     },
     onConnectGameCenter() {
-      audio.unlock();
+      unlockAudioAfterGesture();
       audio.playSfx("confirm");
       setGameCenterStatus({
         ...gameCenterStatus,
@@ -410,17 +429,17 @@ export async function startApp(startup: StartupReporter) {
       void authenticateGameCenter().then(setGameCenterStatus);
     },
     onShowGameCenterLeaderboard() {
-      audio.unlock();
+      unlockAudioAfterGesture();
       audio.playSfx("confirm");
       void showGameCenterLeaderboard().then(setGameCenterStatus);
     },
     onShowGameCenterAchievements() {
-      audio.unlock();
+      unlockAudioAfterGesture();
       audio.playSfx("confirm");
       void showGameCenterAchievements().then(setGameCenterStatus);
     },
     onUserGesture() {
-      audio.unlock();
+      void audio.unlock();
     },
     onOverlayChanged() {
       routeExpression();
@@ -438,6 +457,7 @@ export async function startApp(startup: StartupReporter) {
   appShell.setControlMode(controlMode);
   appShell.setExpressionSensitivity(expressionSensitivity);
   appShell.setAudioSettings(audioSettings);
+  appShell.setAudioStatus(audio.getStatus());
   appShell.setGameCenterStatus(gameCenterStatus);
   void refreshGameCenterStatus().then(setGameCenterStatus);
 

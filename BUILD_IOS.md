@@ -15,7 +15,7 @@ npm run validate:cosmetics:metadata
 npm run build
 ```
 
-音声ファイルを追加した場合も同じ手順で `npm run build` と `npx cap sync ios` を実行します。音声ファイルが未配置でもアプリは無音フォールバックで動作します。
+音声ファイルを追加した場合も同じ手順で `npm run build` と `npx cap sync ios` を実行します。音声ファイルが未配置でも、Build 21 以降は内蔵テスト音源の WebAudio フォールバックで BGM / 効果音を確認できます。
 
 ## 3. Capacitor の iOS プロジェクトへ反映する
 
@@ -65,6 +65,7 @@ npx cap open ios
 - PNG の実ファイルがまだ無い段階では `npm run validate:cosmetics:metadata` と `npm run cosmetics:missing` を使います。画像を配置したあとの TestFlight / release candidate では strict な `npm run validate:cosmetics` を通してください。
 - Build 15 は gameplay / rewards polish build です。MediaPipe 表情操作は維持しつつ、ローカル実績、今日のミッション、最高スコア、ローカルランキング画面、Game Center接続準備レイヤーを追加しています。
 - Build 20 では iOS向けの GameKit / Game Center ブリッジを追加しています。接続できない環境ではローカル記録に安全に戻ります。
+- Build 21 は audio / Game Center diagnostic build です。音声ファイルが未配置でも `BGMテスト` / `効果音テスト` で内蔵テスト音源が鳴り、Game Center は native diagnostics と最後のエラーをランキング画面で確認できます。
 - `public/mediapipe` には MediaPipe の wasm runtime と `face_landmarker.task` を同梱しています。TestFlight インストール後は CDN なし / オフラインでも起動できることを確認します。
 - 通常画面では診断ビルド表示を出さず、起動失敗時や `診断情報を表示` を押した場合だけ詳細を確認できます。
 - カメラの再確認時は、Xcode Console で `EMOTION_RUNNER_CAMERA` と `EMOTION_RUNNER_MODEL` を検索すると、試行した制約・`getUserMedia` の失敗理由・video サイズ・model 読み込み結果を追えます。
@@ -85,10 +86,10 @@ npx cap open ios
 - TestFlight へ再アップロードするたびに `CURRENT_PROJECT_VERSION` を増やします。
 - Build 19 は result / non-run UI / audio polish build です。結果画面はDOMベースのカードで、スコア、ランク、最大コンボ、今日のベスト、最高スコア、獲得コイン、ミッション、実績を読みやすく確認します。
 - Build 20 は readable scale / scroll-safe UI / Game Center bridge / gameplay tuning build です。結果画面と非プレイ画面は縮小しすぎず、短い横画面では内容をスクロールして操作できます。
-- Build 19 では `設定とデータ` に BGM / 効果音のオンオフと音量スライダーがあります。設定は `localStorage` に保存され、音声ファイルが無くてもクラッシュしません。
+- Build 19 では `設定とデータ` に BGM / 効果音のオンオフと音量スライダーがあります。Build 21 ではスライダー操作中に設定画面が先頭へ戻らないよう、音量変更は画面全体を再描画せず反映します。
 - BGM / 効果音は `public/audio/` 配下のローカルファイルだけを参照します。CDN は使いません。詳しくは `docs/AUDIO_ASSETS.md` を確認してください。
 - iOS では音声はユーザー操作後に解放されます。初回タップ前に自動再生されないこと、タップ後にタイトル / gameplay / result / gacha BGM が切り替わることを確認します。
-- Xcode Console で `EMOTION_RUNNER_AUDIO` を検索すると、audio unlock、BGM request、再生失敗、missing file、音量変更を確認できます。
+- Xcode Console で `EMOTION_RUNNER_AUDIO` を検索すると、audio unlock、AudioContext state、BGM request、file missing、procedural fallback、音量変更を確認できます。
 
 ## PNG cosmetic asset workflow
 
@@ -135,12 +136,18 @@ PNG アイテムを追加する場合は、画像を以下のいずれかに配�
 
 ## Game Center setup
 
-Build 20 では iOS native plugin と Game Center entitlement を追加しています。Archive / TestFlight で実際にランキングと実績を使うには、App Store Connect と Xcode の設定が必要です。詳細は `docs/GAME_CENTER.md` も確認してください。
+Build 20 では iOS native plugin と Game Center entitlement を追加しています。Build 21 では native plugin の `getDiagnostics()`、認証タイムアウト、最後のエラー表示、leaderboard / achievement 表示の詳細ログを強化しています。Archive / TestFlight で実際にランキングと実績を使うには、App Store Connect と Xcode の設定が必要です。詳細は `docs/GAME_CENTER.md` も確認してください。
 
 1. Xcode target `App` → `Signing & Capabilities` で `Game Center` が有効になっていることを確認します。
 2. App Store Connect → App → Features / Game Center で leaderboard と achievements を作成します。
 3. 下記 ID を App Store Connect 側にも同じ文字列で登録します。
 4. Game Center が未設定・未ログイン・利用不可の場合、アプリは `ローカル記録のみ表示中` として安全に動作します。
+
+トラブルシュート:
+
+- ランキング画面の `診断情報をコピー` で native bridge の状態、認証状態、最後のエラー、player id を確認します。
+- Xcode Console / Devices and Simulators Console で `EMOTION_RUNNER_GAMECENTER` を検索します。
+- 認証画面が出ない場合は、iPhone の Game Center サインイン状態、App Store Connect の Game Center 有効化、Archive の entitlements を確認します。
 
 ## Game Center identifiers
 
@@ -162,6 +169,7 @@ Build 20 では iOS native plugin と Game Center entitlement を追加してい
 npm run validate:models
 npm run validate:mediapipe
 npm run validate:cosmetics:metadata
+npm run validate:cosmetics
 npm run build
 npx cap sync ios
 plutil -p ios/App/App/Info.plist | grep -A8 -E "UIRequiresFullScreen|UISupportedInterfaceOrientations"

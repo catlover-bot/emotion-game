@@ -18,6 +18,22 @@ export type AudioSettings = {
   sfxVolume: number;
 };
 
+export type AudioSourceKind = "unchecked" | "file" | "procedural" | "disabled";
+
+export type AudioRuntimeStatus = {
+  unlocked: boolean;
+  contextState: AudioContextState | "unsupported";
+  bgmSource: AudioSourceKind;
+  sfxSource: AudioSourceKind;
+  currentTrack: BgmTrack | null;
+  lastMessage: string;
+};
+
+export type AudioTestResult = AudioRuntimeStatus & {
+  ok: boolean;
+  message: string;
+};
+
 const AUDIO_SETTINGS_KEY = "emotion-game.audio-settings";
 
 const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
@@ -46,6 +62,19 @@ const SFX_PATHS: Record<SfxKey, string> = {
   missionClear: "./audio/sfx/mission_clear.mp3",
   achievement: "./audio/sfx/achievement.mp3",
   resultFanfare: "./audio/sfx/result_fanfare.mp3",
+};
+
+const SFX_TONES: Record<SfxKey, { frequency: number; duration: number; type: OscillatorType }> = {
+  confirm: { frequency: 660, duration: 0.09, type: "sine" },
+  back: { frequency: 260, duration: 0.1, type: "triangle" },
+  jump: { frequency: 780, duration: 0.11, type: "sine" },
+  attack: { frequency: 170, duration: 0.12, type: "square" },
+  boost: { frequency: 980, duration: 0.14, type: "sawtooth" },
+  feverStart: { frequency: 880, duration: 0.28, type: "triangle" },
+  gachaReveal: { frequency: 740, duration: 0.2, type: "sine" },
+  missionClear: { frequency: 620, duration: 0.22, type: "triangle" },
+  achievement: { frequency: 920, duration: 0.24, type: "sine" },
+  resultFanfare: { frequency: 520, duration: 0.35, type: "triangle" },
 };
 
 function clampVolume(value: number): number {
@@ -116,18 +145,111 @@ function createAudioElement(path: string, loop: boolean): HTMLAudioElement | nul
   return audio;
 }
 
+function getAudioContextConstructor(): typeof AudioContext | null {
+  if (typeof AudioContext !== "undefined") return AudioContext;
+  const webkitAudioContext = (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  return webkitAudioContext ?? null;
+}
+
+function waitForHtmlAudio(audio: HTMLAudioElement, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      audio.removeEventListener("playing", onPlaying);
+      audio.removeEventListener("error", onError);
+      window.clearTimeout(timer);
+    };
+    const finish = (ok: boolean, error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (ok) resolve();
+      else reject(error ?? new Error("音声ファイルを再生できませんでした。"));
+    };
+    const onPlaying = () => finish(true);
+    const onError = () => finish(false, new Error("音声ファイルが見つからないか、読み込めません。"));
+    const timer = window.setTimeout(() => finish(false, new Error("音声ファイルの再生がタイムアウトしました。")), timeoutMs);
+
+    audio.addEventListener("playing", onPlaying, { once: true });
+    audio.addEventListener("error", onError, { once: true });
+    void audio.play().then(() => finish(true), (error: unknown) => {
+      finish(false, error instanceof Error ? error : new Error(String(error)));
+    });
+  });
+}
+
 export function createAudioManager(initialSettings: AudioSettings) {
   let settings = normalizeAudioSettings(initialSettings);
   let unlocked = false;
   let currentTrack: BgmTrack | null = null;
   let currentBgm: HTMLAudioElement | null = null;
   let pendingTrack: BgmTrack | null = null;
+  let audioContext: AudioContext | null = null;
+  let proceduralGain: GainNode | null = null;
+  let proceduralTimer: number | null = null;
+  let bgmSource: AudioSourceKind = "unchecked";
+  let sfxSource: AudioSourceKind = "unchecked";
+  let lastMessage = "音声はまだ確認されていません。";
   const sfxCache = new Map<SfxKey, HTMLAudioElement>();
   const lastSfxAt = new Map<SfxKey, number>();
 
+  function getContextState(): AudioContextState | "unsupported" {
+    return audioContext?.state ?? (getAudioContextConstructor() ? "suspended" : "unsupported");
+  }
+
+  function getStatus(): AudioRuntimeStatus {
+    return {
+      unlocked,
+      contextState: getContextState(),
+      bgmSource,
+      sfxSource,
+      currentTrack,
+      lastMessage,
+    };
+  }
+
+  function setMessage(message: string) {
+    lastMessage = message;
+    logAudioInfo("status", getStatus());
+  }
+
+  function ensureAudioContext(): AudioContext | null {
+    if (audioContext) return audioContext;
+    const AudioContextConstructor = getAudioContextConstructor();
+    if (!AudioContextConstructor) {
+      logAudioError("web-audio-unsupported");
+      return null;
+    }
+    audioContext = new AudioContextConstructor();
+    logAudioInfo("audio-context-created", { state: audioContext.state });
+    return audioContext;
+  }
+
+  async function resumeAudioContext(): Promise<boolean> {
+    const context = ensureAudioContext();
+    if (!context) return false;
+    if (context.state === "suspended") {
+      try {
+        await context.resume();
+      } catch (error) {
+        logAudioError("audio-context-resume-failed", {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    }
+    logAudioInfo("audio-context-state", { state: context.state });
+    return context.state === "running";
+  }
+
   function applyBgmVolume() {
+    const volume = settings.bgmEnabled ? settings.bgmVolume : 0;
     if (currentBgm) {
-      currentBgm.volume = settings.bgmEnabled ? settings.bgmVolume : 0;
+      currentBgm.volume = volume;
+    }
+    if (proceduralGain) {
+      proceduralGain.gain.setTargetAtTime(volume * 0.11, audioContext?.currentTime ?? 0, 0.04);
     }
   }
 
@@ -142,33 +264,117 @@ export function createAudioManager(initialSettings: AudioSettings) {
     audio.currentTime = 0;
   }
 
+  function stopProceduralBgm() {
+    if (proceduralTimer !== null) {
+      window.clearInterval(proceduralTimer);
+      proceduralTimer = null;
+    }
+    proceduralGain?.disconnect();
+    proceduralGain = null;
+  }
+
+  function playProceduralTone(frequency: number, duration: number, type: OscillatorType, volume: number) {
+    const context = ensureAudioContext();
+    if (!context || context.state !== "running") return false;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const now = context.currentTime;
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), now + 0.018);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + duration + 0.02);
+    return true;
+  }
+
+  function startProceduralBgm(track: BgmTrack) {
+    const context = ensureAudioContext();
+    if (!context || context.state !== "running") {
+      setMessage("内蔵テスト音源を準備できませんでした。iPhoneの消音モードや音量も確認してください。");
+      return false;
+    }
+
+    stopProceduralBgm();
+    void fadeOutAndStop(currentBgm);
+    currentBgm = null;
+    currentTrack = track;
+    bgmSource = "procedural";
+
+    const patterns: Record<BgmTrack, number[]> = {
+      title: [392, 494, 587, 494],
+      gameplay: [330, 392, 494, 659],
+      result: [523, 659, 784, 659],
+      gacha: [440, 554, 659, 880],
+      customize: [349, 440, 523, 440],
+    };
+    const notes = patterns[track];
+    let index = 0;
+    proceduralGain = context.createGain();
+    proceduralGain.gain.value = settings.bgmEnabled ? settings.bgmVolume * 0.11 : 0;
+    proceduralGain.connect(context.destination);
+
+    const tick = () => {
+      if (!proceduralGain || !settings.bgmEnabled) return;
+      const oscillator = context.createOscillator();
+      const noteGain = context.createGain();
+      const now = context.currentTime;
+      oscillator.type = "triangle";
+      oscillator.frequency.setValueAtTime(notes[index % notes.length] ?? 440, now);
+      noteGain.gain.setValueAtTime(0.0001, now);
+      noteGain.gain.exponentialRampToValueAtTime(0.2, now + 0.025);
+      noteGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+      oscillator.connect(noteGain).connect(proceduralGain);
+      oscillator.start(now);
+      oscillator.stop(now + 0.26);
+      index += 1;
+    };
+
+    tick();
+    proceduralTimer = window.setInterval(tick, track === "gameplay" ? 260 : 360);
+    setMessage("内蔵テスト音源を使用中です。iPhoneの消音モードや音量も確認してください。");
+    logAudioInfo("procedural-bgm-started", { track, contextState: context.state });
+    return true;
+  }
+
   async function playBgmNow(track: BgmTrack) {
     pendingTrack = track;
     if (!settings.bgmEnabled) {
+      stopProceduralBgm();
       await fadeOutAndStop(currentBgm);
       currentTrack = track;
+      bgmSource = "disabled";
+      setMessage("BGMはオフです。");
       return;
     }
 
     if (!unlocked) {
-      logAudioInfo("bgm-deferred-until-unlock", { track });
+      logAudioInfo("bgm-deferred-until-unlock", { track, iOSGestureUnlocked: unlocked });
       return;
     }
 
-    if (currentTrack === track && currentBgm && !currentBgm.paused) {
+    if (currentTrack === track && (currentBgm && !currentBgm.paused || bgmSource === "procedural")) {
       applyBgmVolume();
       return;
     }
 
     const previousBgm = currentBgm;
     const audio = createAudioElement(BGM_PATHS[track], true);
-    if (!audio) return;
+    if (!audio) {
+      startProceduralBgm(track);
+      return;
+    }
+
     audio.volume = 0;
     currentTrack = track;
     currentBgm = audio;
 
     try {
-      await audio.play();
+      await waitForHtmlAudio(audio, 1400);
+      stopProceduralBgm();
+      bgmSource = "file";
       logAudioInfo("bgm-play-success", { track, path: BGM_PATHS[track] });
       void fadeOutAndStop(previousBgm);
       const target = settings.bgmVolume;
@@ -177,8 +383,9 @@ export function createAudioManager(initialSettings: AudioSettings) {
         await new Promise((resolve) => window.setTimeout(resolve, 55));
       }
       applyBgmVolume();
+      setMessage("音声ファイルを使用中です。");
     } catch (error) {
-      logAudioError("bgm-play-failed", {
+      logAudioError("bgm-file-fallback", {
         track,
         path: BGM_PATHS[track],
         errorName: error instanceof Error ? error.name : "UnknownError",
@@ -187,25 +394,91 @@ export function createAudioManager(initialSettings: AudioSettings) {
       if (currentBgm === audio) {
         currentBgm = previousBgm;
       }
+      startProceduralBgm(track);
     }
   }
 
+  function playProceduralSfx(key: SfxKey) {
+    const tone = SFX_TONES[key];
+    const ok = playProceduralTone(tone.frequency, tone.duration, tone.type, settings.sfxVolume * 0.12);
+    if (ok) {
+      sfxSource = "procedural";
+      setMessage("内蔵テスト音源を使用中です。");
+      logAudioInfo("procedural-sfx-played", { key, contextState: getContextState() });
+    }
+    return ok;
+  }
+
+  async function playSfxOnce(key: SfxKey, throttleMs = 80): Promise<AudioSourceKind> {
+    if (!unlocked || !settings.sfxEnabled) return "disabled";
+    const now = performance.now();
+    const previous = lastSfxAt.get(key) ?? -Infinity;
+    if (now - previous < throttleMs) return sfxSource;
+    lastSfxAt.set(key, now);
+
+    let audio = sfxCache.get(key);
+    if (!audio) {
+      audio = createAudioElement(SFX_PATHS[key], false) ?? undefined;
+      if (audio) sfxCache.set(key, audio);
+    }
+
+    if (!audio) {
+      return playProceduralSfx(key) ? "procedural" : "unchecked";
+    }
+
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = settings.sfxVolume;
+      await waitForHtmlAudio(audio, 700);
+      sfxSource = "file";
+      setMessage("音声ファイルを使用中です。");
+      logAudioInfo("sfx-play-success", { key, path: SFX_PATHS[key] });
+      return "file";
+    } catch (error) {
+      logAudioError("sfx-file-fallback", {
+        key,
+        path: SFX_PATHS[key],
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      return playProceduralSfx(key) ? "procedural" : "unchecked";
+    }
+  }
+
+  function playSfx(key: SfxKey, throttleMs = 80) {
+    void playSfxOnce(key, throttleMs);
+  }
+
+  async function unlock(): Promise<AudioRuntimeStatus> {
+    logAudioInfo("unlock-requested", { unlocked, contextState: getContextState() });
+    unlocked = true;
+    const contextReady = await resumeAudioContext();
+    logAudioInfo(contextReady ? "unlock-success" : "unlock-partial", {
+      contextState: getContextState(),
+      iOSGestureUnlocked: unlocked,
+    });
+    if (pendingTrack) {
+      void playBgmNow(pendingTrack);
+    }
+    return getStatus();
+  }
+
   return {
-    unlock() {
-      if (unlocked) return;
-      unlocked = true;
-      logAudioInfo("audio-unlocked");
-      if (pendingTrack) {
-        void playBgmNow(pendingTrack);
-      }
-    },
+    unlock,
     setSettings(nextSettings: AudioSettings) {
       settings = normalizeAudioSettings(nextSettings);
       saveAudioSettings(settings);
-      logAudioInfo("settings-updated", settings);
+      logAudioInfo("settings-updated", {
+        settings,
+        contextState: getContextState(),
+        iOSGestureUnlocked: unlocked,
+      });
       applyBgmVolume();
       if (!settings.bgmEnabled) {
+        stopProceduralBgm();
         void fadeOutAndStop(currentBgm);
+        bgmSource = "disabled";
       } else if (pendingTrack) {
         void playBgmNow(pendingTrack);
       }
@@ -213,46 +486,33 @@ export function createAudioManager(initialSettings: AudioSettings) {
     getSettings(): AudioSettings {
       return { ...settings };
     },
+    getStatus,
     requestBgm(track: BgmTrack) {
-      logAudioInfo("bgm-requested", { track, unlocked });
+      logAudioInfo("bgm-requested", { track, unlocked, contextState: getContextState() });
       void playBgmNow(track);
     },
-    playSfx(key: SfxKey, throttleMs = 80) {
-      if (!unlocked || !settings.sfxEnabled) return;
-      const now = performance.now();
-      const previous = lastSfxAt.get(key) ?? -Infinity;
-      if (now - previous < throttleMs) return;
-      lastSfxAt.set(key, now);
-
-      let audio = sfxCache.get(key);
-      if (!audio) {
-        audio = createAudioElement(SFX_PATHS[key], false) ?? undefined;
-        if (!audio) return;
-        sfxCache.set(key, audio);
-      }
-
-      try {
-        audio.pause();
-        audio.currentTime = 0;
-        audio.volume = settings.sfxVolume;
-        void audio.play().then(
-          () => logAudioInfo("sfx-play-success", { key, path: SFX_PATHS[key] }),
-          (error: unknown) => {
-            logAudioError("sfx-play-failed", {
-              key,
-              path: SFX_PATHS[key],
-              errorName: error instanceof Error ? error.name : "UnknownError",
-              errorMessage: error instanceof Error ? error.message : String(error),
-            });
-          },
-        );
-      } catch (error) {
-        logAudioError("sfx-play-threw", {
-          key,
-          errorName: error instanceof Error ? error.name : "UnknownError",
-          errorMessage: error instanceof Error ? error.message : String(error),
-        });
-      }
+    async testBgm(track: BgmTrack = pendingTrack ?? "title"): Promise<AudioTestResult> {
+      await unlock();
+      await playBgmNow(track);
+      const status = getStatus();
+      const ok = status.bgmSource === "file" || status.bgmSource === "procedural";
+      const message = ok
+        ? `${status.bgmSource === "file" ? "音声ファイル" : "内蔵テスト音源"}でBGMを再生しました。iPhoneの消音モードや音量も確認してください。`
+        : "BGMの再生に失敗しました。iPhoneの消音モードや音量も確認してください。";
+      setMessage(message);
+      return { ...status, ok, message };
     },
+    async testSfx(key: SfxKey = "confirm"): Promise<AudioTestResult> {
+      await unlock();
+      await playSfxOnce(key, 0);
+      const status = getStatus();
+      const ok = status.sfxSource === "file" || status.sfxSource === "procedural";
+      const message = ok
+        ? `${status.sfxSource === "file" ? "音声ファイル" : "内蔵テスト音源"}で効果音を再生しました。`
+        : "効果音の再生に失敗しました。iPhoneの消音モードや音量も確認してください。";
+      setMessage(message);
+      return { ...status, ok, message };
+    },
+    playSfx,
   };
 }

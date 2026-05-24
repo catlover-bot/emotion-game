@@ -35,7 +35,12 @@ export type GameCenterStatus = {
   usingNative: boolean;
   connectionState: GameCenterConnectionState;
   playerName: string;
+  playerGamePlayerID: string;
   message: string;
+  lastErrorCode: string;
+  lastErrorMessage: string;
+  supportsGameCenterBridge: boolean;
+  entitlementDetected: boolean | "unknown";
 };
 
 type NativeGameCenterPlugin = {
@@ -51,6 +56,7 @@ type NativeGameCenterPlugin = {
   }): Promise<NativeGameCenterResult>;
   showLeaderboard(options: { leaderboardId: string }): Promise<NativeGameCenterResult>;
   showAchievements(): Promise<NativeGameCenterResult>;
+  getDiagnostics(): Promise<NativeGameCenterResult>;
 };
 
 type NativeGameCenterResult = {
@@ -59,7 +65,12 @@ type NativeGameCenterResult = {
   success?: boolean;
   usingNative?: boolean;
   playerName?: string;
+  playerGamePlayerID?: string;
   message?: string;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
+  supportsGameCenterBridge?: boolean;
+  entitlementDetected?: boolean | "unknown";
 };
 
 type PendingGameServiceEvent =
@@ -97,7 +108,12 @@ function getLocalFallbackStatus(message: string): GameCenterStatus {
     usingNative: false,
     connectionState: "local",
     playerName: "",
+    playerGamePlayerID: "",
     message,
+    lastErrorCode: "",
+    lastErrorMessage: "",
+    supportsGameCenterBridge: false,
+    entitlementDetected: "unknown",
   };
 }
 
@@ -111,7 +127,12 @@ function normalizeNativeStatus(result: NativeGameCenterResult, fallbackMessage: 
     usingNative: result.usingNative ?? isIosNative(),
     connectionState: authenticated ? "connected" : available ? "local" : "unavailable",
     playerName: result.playerName ?? "",
+    playerGamePlayerID: result.playerGamePlayerID ?? "",
     message: result.message ?? fallbackMessage,
+    lastErrorCode: result.lastErrorCode ?? "",
+    lastErrorMessage: result.lastErrorMessage ?? "",
+    supportsGameCenterBridge: result.supportsGameCenterBridge ?? true,
+    entitlementDetected: result.entitlementDetected ?? "unknown",
   };
 }
 
@@ -167,9 +188,18 @@ async function callNative<T>(
     logGameCenter(`${label}-native-success`, result);
     return result;
   } catch (error) {
+    const name = error instanceof Error ? error.name : "Error";
+    const message = error instanceof Error ? error.message : String(error);
+    cachedStatus = {
+      ...cachedStatus,
+      connectionState: "error",
+      lastErrorCode: name,
+      lastErrorMessage: message,
+      message,
+    };
     logGameCenter(`${label}-native-failed`, {
-      name: error instanceof Error ? error.name : "Error",
-      message: error instanceof Error ? error.message : String(error),
+      name,
+      message,
     });
     return null;
   }
@@ -212,11 +242,15 @@ export function getStatus(): GameCenterStatus {
 }
 
 export async function refreshStatus(): Promise<GameCenterStatus> {
-  const result = await callNative("status", () => nativeGameCenter.isAvailable());
+  const result = await callNative("diagnostics", () => nativeGameCenter.getDiagnostics());
   cachedStatus = result
     ? normalizeNativeStatus(result, "Game Centerの状態を確認しました。")
     : getLocalFallbackStatus("この環境ではGame Centerを利用できません。ローカル記録を表示します。");
   return cachedStatus;
+}
+
+export async function getDiagnostics(): Promise<GameCenterStatus> {
+  return refreshStatus();
 }
 
 export async function authenticate(): Promise<GameCenterStatus> {
@@ -232,6 +266,8 @@ export async function authenticate(): Promise<GameCenterStatus> {
     usingNative: true,
     connectionState: "connecting",
     message: "Game Centerに接続しています…",
+    lastErrorCode: "",
+    lastErrorMessage: "",
   };
   const result = await callNative("authenticate", () => nativeGameCenter.authenticate());
   cachedStatus = result

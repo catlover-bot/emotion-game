@@ -32,10 +32,15 @@
 - [ ] 設定で表情感度 `やさしい` / `ふつう` / `高感度` を切り替えられる
 - [ ] 設定で BGM オン / オフを切り替えられる
 - [ ] 設定で BGM 音量スライダーが動作し、再起動後も保存される
+- [ ] 設定で BGM 音量スライダーをドラッグしても画面が先頭へスクロールしない
 - [ ] 設定で 効果音 オン / オフを切り替えられる
 - [ ] 設定で 効果音 音量スライダーが動作し、再起動後も保存される
+- [ ] 設定で 効果音 音量スライダーをドラッグしても画面が先頭へスクロールしない
+- [ ] 設定の `BGMテスト` を押すと、音声ファイル未配置でも内蔵テスト音源が聞こえる
+- [ ] 設定の `効果音テスト` を押すと、音声ファイル未配置でも短い内蔵テスト音が聞こえる
+- [ ] 音声テスト後に `音声: 有効`、`音源: 内蔵テスト音源` または `音声ファイル` が表示される
 - [ ] 設定で 表情ナビのヒント表示 オン / オフを切り替えられる
-- [ ] 音声ファイルが未配置でもアプリがクラッシュせず無音で操作できる
+- [ ] 音声ファイルが未配置でもアプリがクラッシュせず、内蔵テスト音源へフォールバックする
 - [ ] 着せ替え画面のキャラ / 背景切り替えが動作する
 - [ ] ガチャ画面の表示と結果メッセージが自然な日本語になっている
 - [ ] ガチャ開始後にカプセル / カード演出、レアリティ、アイテム名、新規 / ダブり表示が見える
@@ -67,6 +72,8 @@
 - [ ] ランキング画面にローカル最高スコア、今日のベスト、最高コンボ、実績数が表示される
 - [ ] Game Center未接続 / 接続中 / 接続済み / ローカル記録のみ表示中 の状態が自然な日本語で分かる
 - [ ] Game Center接続、ランキング表示、実績表示ボタンがクラッシュせず動作または安全に無効化される
+- [ ] ランキング画面で最後のGame Centerエラーが表示される
+- [ ] ランキング画面の `診断情報をコピー` で状態をコピーできる、またはConsoleに出力される
 - [ ] `EMOTION_RUNNER_GAMECENTER` のログが出ても、ユーザー画面には技術用語が出ない
 - [ ] 低い横画面高さでもモーダル本文がスクロールでき、CTA が見える
 - [ ] 重要 UI の z-index が整理され、canvas がメニューやモーダルを覆わない
@@ -93,7 +100,7 @@
 
 ## iPhone checks
 
-- [ ] Build 20 がインストールされている
+- [ ] Build 21 がインストールされている
 - [ ] アプリが横画面専用で起動し、縦向きに回転しない
 - [ ] `UIRequiresFullScreen = true` の前提でフルスクリーン表示される
 - [ ] iPhone の「設定」→「表情ランナー」→「カメラ」が ON になっている
@@ -146,7 +153,8 @@
 - [ ] 実績解除が結果画面とトーストで分かりやすい
 - [ ] ランキング画面で Game Center接続 / ランキング表示 / 実績表示 / ローカルfallback を確認できる
 - [ ] Game Center未設定でもローカル記録だけで安全に使える
-- [ ] `EMOTION_RUNNER_GAMECENTER` の native plugin registered / authenticate / submit score / achievement log を確認できる
+- [ ] `EMOTION_RUNNER_GAMECENTER` の diagnostics / authenticate / submit score / achievement / present log を確認できる
+- [ ] Game Center認証が失敗した場合も画面が固まらず、最後のエラーとローカルfallbackが表示される
 - [ ] Game Center identifier が App Store Connect と `BUILD_IOS.md` で一致している
 - [ ] ガチャと着せ替えの画面が横向きでスクリーンショット向きに見える
 - [ ] ガチャ演出が長すぎず、音なしでも報酬感がある
@@ -159,6 +167,8 @@
 - [ ] App Store 用スクリーンショットとして見栄えがする
 - [ ] `public/audio/bgm` と `public/audio/sfx` に音声を追加した場合、`npx cap sync ios` 後に iOS public assets にコピーされる
 - [ ] Xcode Console / Devices and Simulators Console で `EMOTION_RUNNER_AUDIO` を検索できる
+- [ ] `EMOTION_RUNNER_AUDIO` で unlock、AudioContext state、procedural fallback、file missing、volume change を確認できる
+- [ ] 聞こえない場合、iPhoneの消音モード、音量、Bluetooth出力先を確認する
 - [ ] 新しい Archive 前に Xcode の Build 番号を増やしている
 - [ ] Xcode Console / Devices and Simulators Console で `EMOTION_RUNNER_CAMERA` を検索できる
 - [ ] Xcode Console / Devices and Simulators Console で `EMOTION_RUNNER_MODEL` を検索できる

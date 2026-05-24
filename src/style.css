@@ -677,6 +677,25 @@ button {
   gap: 10px;
 }
 
+.audio-status-card {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  background: rgba(14, 165, 233, 0.1);
+}
+
+.audio-status-card span {
+  color: #e0f2fe;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.audio-status-card small {
+  color: #bae6fd;
+}
+
 .audio-toggle-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -705,10 +724,21 @@ button {
   accent-color: #38bdf8;
 }
 
+.audio-test-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .helper-copy,
 .status-text {
   margin-top: 16px;
   font-size: 0.92rem;
+}
+
+.warning-text {
+  color: #fcd34d !important;
+  font-weight: 800;
 }
 
 .modal-screen {
@@ -1673,7 +1703,7 @@ button {
 
 .game-center-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 9px;
 }
 
