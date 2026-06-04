@@ -55,10 +55,12 @@ import {
 import { getLoadedCosmeticImage } from "./cosmeticAssets";
 
 export type Scene = "title" | "play" | "customize" | "gacha";
+export type RunState = "running" | "paused" | "result";
 export type GameAction = "jump" | "attack" | "boost";
 export type GameSnapshot = {
   scene: Scene;
   gameOver: boolean;
+  runState: RunState;
   score: number;
   combo: number;
   maxCombo: number;
@@ -119,6 +121,8 @@ export type Game = {
   getSnapshot(): GameSnapshot;
   subscribe(listener: (snapshot: GameSnapshot) => void): () => void;
   startRun(): void;
+  pauseRun(): void;
+  resumeRun(): void;
   retry(): void;
   goToTitle(): void;
   openCustomize(): void;
@@ -252,6 +256,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   let runStartTick = 0;
   let life = 3;
   let gameOver = false;
+  let runPaused = false;
   let tick = 0;
 
   // 攻撃・ギミック
@@ -636,7 +641,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
   function damage() {
     if (scene !== "play") return;
-    if (gameOver) return;
+    if (gameOver || runPaused) return;
 
     life -= 1;
     breakCombo();
@@ -753,8 +758,17 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
   function setScene(nextScene: Scene) {
     scene = nextScene;
+    if (nextScene !== "play") {
+      runPaused = false;
+    }
     resetMenuHoldCounters();
     markSnapshotDirty();
+  }
+
+  function getRunState(): RunState {
+    if (scene !== "play") return "running";
+    if (gameOver) return "result";
+    return runPaused ? "paused" : "running";
   }
 
   function getSnapshot(): GameSnapshot {
@@ -782,6 +796,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     return {
       scene,
       gameOver,
+      runState: getRunState(),
       score,
       combo,
       maxCombo,
@@ -955,6 +970,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     runStartTick = tick;
     life = 3;
     gameOver = false;
+    runPaused = false;
     runProgressRecorded = false;
     achievementsUnlockedThisRun = [];
 
@@ -999,6 +1015,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   // ゲームオーバー中に表情でコンテニュー判定
   function checkContinueByExpression() {
     if (scene !== "play") return;
+    if (runPaused) return;
     if (!gameOver || gameOverTick === null) return;
 
     // ゲームオーバー直後は少し待つ（30フレームくらい）
@@ -1025,6 +1042,36 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     recordRunStartProgress();
     setScene("play");
     spawnLikeShower(width() / 2, groundY() - 80);
+  }
+
+  function logGame(message: string, payload?: unknown) {
+    if (payload === undefined) {
+      console.info(`EMOTION_RUNNER_GAME ${message}`);
+      return;
+    }
+    console.info(`EMOTION_RUNNER_GAME ${message}`, payload);
+  }
+
+  function pauseRun() {
+    if (scene !== "play" || gameOver) return;
+    if (runPaused) {
+      logGame("duplicate loop prevented", { reason: "already-paused" });
+      return;
+    }
+
+    runPaused = true;
+    manualBoostTicks = 0;
+    setActionFeedback("ポーズ中");
+    logGame("pause menu opened", { score, combo, tick });
+    markSnapshotDirty();
+  }
+
+  function resumeRun() {
+    if (scene !== "play" || gameOver || !runPaused) return;
+    runPaused = false;
+    setActionFeedback("再開！");
+    logGame("pause menu resumed", { score, combo, tick });
+    markSnapshotDirty();
   }
 
   function goToTitle() {
@@ -1155,12 +1202,13 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       source,
       expression: currentExpression,
       scene,
+      runState: getRunState(),
       tick,
     });
   }
 
   function performJump(source: "expression" | "touch" = "expression") {
-    if (scene !== "play" || gameOver) return;
+    if (scene !== "play" || gameOver || runPaused) return;
     if (!isOnGround || tick - lastHappyTick <= HAPPY_COOLDOWN) return;
 
     const gY = groundY();
@@ -1175,7 +1223,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   }
 
   function performAttack(source: "expression" | "touch" = "expression") {
-    if (scene !== "play" || gameOver) return;
+    if (scene !== "play" || gameOver || runPaused) return;
     if (tick - lastAngryTick <= ANGRY_COOLDOWN) return;
 
     spawnWave();
@@ -1187,7 +1235,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
   }
 
   function triggerBoost(source: "expression" | "touch" = "touch") {
-    if (scene !== "play" || gameOver) return;
+    if (scene !== "play" || gameOver || runPaused) return;
     manualBoostTicks = Math.max(manualBoostTicks, 12);
     setActionFeedback(source === "expression" ? "驚きブースト！" : "ブースト！");
     logExpressionAction("boost", source);
@@ -1278,6 +1326,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
   function updatePlayer() {
     if (scene !== "play") return;
+    if (runPaused) return;
     const gY = groundY();
 
     if (currentExpression === "happy") {
@@ -1437,6 +1486,7 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
   function handleTap(x: number, y: number) {
     if (scene !== "play") return;
+    if (runPaused) return;
     if (!gameOver) return;
 
     const { share, retry, title } = gameOverButtons(width(), height());
@@ -1465,14 +1515,19 @@ export function createGame(canvas: HTMLCanvasElement): Game {
 
   // ===== メインループ =====
   function loop() {
-    tick += 1;
+    const isPausedRun = scene === "play" && runPaused;
+    if (!isPausedRun) {
+      tick += 1;
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width(), height());
 
     // 状態アップデート（シーンごと）
     switch (scene) {
       case "play": {
-        if (!gameOver) {
+        if (runPaused) {
+          // ポーズ中は描画だけ続け、当たり判定・スコア・タイマーを止める。
+        } else if (!gameOver) {
           updatePlayer();
           updateBombs();
           updateStars();
@@ -1500,8 +1555,10 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       }
     }
 
-    // いいねパーティクルは常に更新
-    updateLikeParticles();
+    // ポーズ中は演出も止め、再開時に同じ状態から続ける。
+    if (!isPausedRun) {
+      updateLikeParticles();
+    }
 
     // スキン情報（毎フレーム、ID→色情報に変換）
     const charSkin = findCharacterSkin(cosmetics.equippedCharacterSkinId);
@@ -1732,10 +1789,16 @@ export function createGame(canvas: HTMLCanvasElement): Game {
       handleTap(x, y);
     },
     startRun,
+    pauseRun,
+    resumeRun,
     retry() {
+      logGame("run restarted from pause", { wasPaused: runPaused });
       startRun();
     },
-    goToTitle,
+    goToTitle() {
+      logGame("title requested from pause", { wasPaused: runPaused, scene });
+      goToTitle();
+    },
     openCustomize,
     openGacha,
     cycleCharacter,

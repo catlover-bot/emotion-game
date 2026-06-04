@@ -33,7 +33,7 @@ import {
   type BgmTrack,
 } from "./audio";
 import {
-  authenticate as authenticateGameCenter,
+  autoConnect as autoConnectGameCenter,
   getStatus as getGameCenterStatus,
   refreshStatus as refreshGameCenterStatus,
   showAchievements as showGameCenterAchievements,
@@ -302,7 +302,7 @@ export async function startApp(startup: StartupReporter) {
       unlockAudioAfterGesture();
       audio.playSfx("confirm");
       game?.openRanking();
-      void refreshGameCenterStatus().then(setGameCenterStatus);
+      void autoConnectGameCenter("ranking").then(setGameCenterStatus);
     },
     onBackToTitle() {
       unlockAudioAfterGesture();
@@ -343,6 +343,53 @@ export async function startApp(startup: StartupReporter) {
       if (!game) return;
       appShell.closeOverlay();
       game.retry();
+      routeExpression();
+    },
+    onOpenPauseMenu() {
+      unlockAudioAfterGesture();
+      audio.playSfx("confirm", 180);
+      console.info("EMOTION_RUNNER_GAME pause menu opened");
+      game?.pauseRun();
+      routeExpression();
+    },
+    onResumeRun() {
+      unlockAudioAfterGesture();
+      audio.playSfx("back", 180);
+      console.info("EMOTION_RUNNER_GAME pause menu resumed");
+      game?.resumeRun();
+      routeExpression();
+    },
+    onRestartRunFromPause() {
+      unlockAudioAfterGesture();
+      audio.playSfx("confirm");
+      console.info("EMOTION_RUNNER_GAME run restarted from pause");
+      if (!game) return;
+      game.retry();
+      routeExpression();
+    },
+    onOpenSettingsFromPause() {
+      unlockAudioAfterGesture();
+      audio.playSfx("confirm");
+      console.info("EMOTION_RUNNER_GAME settings opened from pause");
+      game?.pauseRun();
+      routeExpression();
+    },
+    onOpenRankingFromPause() {
+      unlockAudioAfterGesture();
+      audio.playSfx("confirm");
+      console.info("EMOTION_RUNNER_GAME ranking opened from pause");
+      game?.pauseRun();
+      game?.openRanking();
+      void autoConnectGameCenter("ranking").then(setGameCenterStatus);
+      routeExpression();
+    },
+    onConfirmTitleFromPause() {
+      unlockAudioAfterGesture();
+      audio.playSfx("back");
+      console.info("EMOTION_RUNNER_GAME title requested from pause");
+      if (!game) return;
+      pendingStartAfterTutorial = false;
+      game.goToTitle();
       routeExpression();
     },
     onEnableCamera() {
@@ -426,7 +473,7 @@ export async function startApp(startup: StartupReporter) {
         connectionState: "connecting",
         message: "Game Centerに接続しています…",
       });
-      void authenticateGameCenter().then(setGameCenterStatus);
+      void autoConnectGameCenter("manual", { bypassCooldown: true }).then(setGameCenterStatus);
     },
     onShowGameCenterLeaderboard() {
       unlockAudioAfterGesture();
@@ -459,7 +506,19 @@ export async function startApp(startup: StartupReporter) {
   appShell.setAudioSettings(audioSettings);
   appShell.setAudioStatus(audio.getStatus());
   appShell.setGameCenterStatus(gameCenterStatus);
-  void refreshGameCenterStatus().then(setGameCenterStatus);
+  void refreshGameCenterStatus()
+    .then(setGameCenterStatus)
+    .then(() => autoConnectGameCenter("boot"))
+    .then(setGameCenterStatus);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    void autoConnectGameCenter("resume").then(setGameCenterStatus);
+  });
+
+  window.addEventListener("focus", () => {
+    void autoConnectGameCenter("resume").then(setGameCenterStatus);
+  });
 
   function hasMeaningfulUiContent() {
     const rect = uiRoot.getBoundingClientRect();
@@ -483,7 +542,8 @@ export async function startApp(startup: StartupReporter) {
     const snapshot = game?.getSnapshot();
     const shouldRouteToGameplay =
       snapshot?.scene === "play" &&
-      !snapshot.gameOver;
+      !snapshot.gameOver &&
+      snapshot.runState !== "paused";
     const expressionForGame =
       controlMode === "expression" &&
       cameraState === "ready" &&

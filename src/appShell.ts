@@ -26,6 +26,8 @@ type OverlayScreen =
   | "privacy"
   | "settings"
   | "ranking"
+  | "pause"
+  | "pauseTitleConfirm"
   | "recovery";
 
 type PracticeMode = "learn" | "start";
@@ -45,6 +47,12 @@ type AppShellOptions = {
   onEquipLastGachaResult(): void;
   onShare(): void;
   onRetryGame(): void;
+  onOpenPauseMenu(): void;
+  onResumeRun(): void;
+  onRestartRunFromPause(): void;
+  onOpenSettingsFromPause(): void;
+  onOpenRankingFromPause(): void;
+  onConfirmTitleFromPause(): void;
   onEnableCamera(): void;
   onContinueWithoutCamera(): void;
   onCloseOverlay(): void;
@@ -67,6 +75,7 @@ type AppShellOptions = {
 
 type AppShellState = {
   overlay: OverlayScreen;
+  returnOverlayAfterClose: OverlayScreen | null;
   game: GameSnapshot | null;
   cameraState: CameraUiState;
   cameraTitle: string;
@@ -343,6 +352,7 @@ export function createAppShell(options: AppShellOptions) {
 
   const state: AppShellState = {
     overlay: "none",
+    returnOverlayAfterClose: null,
     game: null,
     cameraState: "idle",
     cameraTitle: "",
@@ -480,6 +490,8 @@ export function createAppShell(options: AppShellOptions) {
     const preferredActions = [
       "back-to-title",
       "close-overlay",
+      "resume-run",
+      "cancel-title-from-pause",
       "cancel-reset-data",
       "continue-without-camera",
     ];
@@ -565,6 +577,18 @@ export function createAppShell(options: AppShellOptions) {
   function setOverlay(overlay: OverlayScreen) {
     state.overlay = overlay;
     renderAndNotify();
+  }
+
+  function closeActiveOverlay() {
+    if (state.returnOverlayAfterClose && state.overlay !== state.returnOverlayAfterClose) {
+      const next = state.returnOverlayAfterClose;
+      state.returnOverlayAfterClose = null;
+      setOverlay(next);
+      return;
+    }
+
+    state.returnOverlayAfterClose = null;
+    setOverlay("none");
   }
 
   function resetPracticeState(mode: PracticeMode) {
@@ -1158,6 +1182,7 @@ export function createAppShell(options: AppShellOptions) {
             <span>最高 ${game.allTimeBest}</span>
             <span>コイン ${game.coins}</span>
             <span>${controlMode.label}</span>
+            <span>${escapeHtml(getGameCenterStateLabel(state.gameCenterStatus))}</span>
           </div>
           <div class="title-mission-strip">
             <strong>${escapeHtml(game.missionText.replace("今日のミッション: ", ""))}</strong>
@@ -1307,13 +1332,22 @@ export function createAppShell(options: AppShellOptions) {
   }
 
   function getTouchControlsHtml(game: GameSnapshot) {
-    if (game.scene !== "play" || game.gameOver) return "";
+    if (game.scene !== "play" || game.gameOver || game.runState === "paused") return "";
 
     return `
       <div class="touch-controls ${game.controlMode === "tap" ? "is-tap-mode" : "is-expression-mode"}">
         <button type="button" data-action="touch-jump" class="touch-button">ジャンプ</button>
         <button type="button" data-action="touch-attack" class="touch-button">攻撃</button>
         <button type="button" data-action="touch-boost" class="touch-button">ブースト</button>
+      </div>
+    `;
+  }
+
+  function getRunMenuButtonHtml(game: GameSnapshot) {
+    if (game.scene !== "play" || game.gameOver || game.runState === "paused") return "";
+    return `
+      <div class="run-menu-button-wrap">
+        <button type="button" data-action="open-pause-menu" class="run-menu-button">メニュー</button>
       </div>
     `;
   }
@@ -1335,6 +1369,7 @@ export function createAppShell(options: AppShellOptions) {
     if (
       game.scene !== "play" ||
       game.gameOver ||
+      game.runState === "paused" ||
       state.cameraState !== "ready" ||
       state.controlMode !== "expression"
     ) {
@@ -1840,6 +1875,64 @@ export function createAppShell(options: AppShellOptions) {
     `;
   }
 
+  function getPauseHtml() {
+    const game = state.game;
+    const runStats = game
+      ? `
+        <div class="pause-stat-strip">
+          <span>スコア <strong>${game.score}</strong></span>
+          <span>コンボ <strong>×${game.combo}</strong></span>
+          <span>コイン <strong>${game.coins}</strong></span>
+          <span>${escapeHtml(game.controlModeLabel)}</span>
+        </div>
+      `
+      : "";
+
+    return `
+      <section class="modal-screen pause-screen">
+        <div class="modal-card pause-card">
+          <div class="panel-header">
+            <div>
+              <span class="eyebrow">ランを一時停止中</span>
+              <h2>ポーズ</h2>
+            </div>
+            <button type="button" data-action="resume-run" class="primary-button compact-action">続ける</button>
+          </div>
+
+          ${runStats}
+
+          <div class="menu-grid pause-menu-grid">
+            <button type="button" data-action="resume-run" class="primary-button">続ける</button>
+            <button type="button" data-action="restart-from-pause" class="secondary-button">最初から</button>
+            <button type="button" data-action="open-settings-from-pause" class="secondary-button">設定</button>
+            <button type="button" data-action="open-ranking-from-pause" class="secondary-button">ランキング</button>
+            <button type="button" data-action="request-title-from-pause" class="ghost-button danger-button">タイトルへ</button>
+          </div>
+
+          ${getAudioSettingsHtml()}
+
+          <p class="helper-copy">ポーズ中はゲームの時間が止まります。表情操作はメニュー選択だけに使われます。</p>
+        </div>
+      </section>
+    `;
+  }
+
+  function getPauseTitleConfirmHtml() {
+    return `
+      <section class="modal-screen pause-screen">
+        <div class="modal-card pause-confirm-card">
+          <span class="eyebrow">ラン終了の確認</span>
+          <h2>ランを終了してタイトルへ戻りますか？</h2>
+          <p>現在のランは終了します。続ける場合は「戻る」を選んでください。</p>
+          <div class="button-row">
+            <button type="button" data-action="cancel-title-from-pause" class="secondary-button">戻る</button>
+            <button type="button" data-action="confirm-title-from-pause" class="primary-button danger-button">タイトルへ</button>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   function getRecoveryHtml() {
     return `
       <section class="modal-screen">
@@ -1877,6 +1970,10 @@ export function createAppShell(options: AppShellOptions) {
         return getSettingsHtml();
       case "ranking":
         return getRankingHtml();
+      case "pause":
+        return getPauseHtml();
+      case "pauseTitleConfirm":
+        return getPauseTitleConfirmHtml();
       case "recovery":
         return getRecoveryHtml();
       default:
@@ -1909,6 +2006,7 @@ export function createAppShell(options: AppShellOptions) {
             options.onOpenGacha();
             break;
           case "open-ranking":
+            state.returnOverlayAfterClose = null;
             options.onOpenRanking();
             setOverlay("ranking");
             break;
@@ -1917,10 +2015,50 @@ export function createAppShell(options: AppShellOptions) {
             setOverlay("privacy");
             break;
           case "open-settings":
+            state.returnOverlayAfterClose = null;
             state.confirmResetData = false;
             state.settingsNotice = "";
             state.settingsDiagnosticsExpanded = false;
             setOverlay("settings");
+            break;
+          case "open-pause-menu":
+            state.returnOverlayAfterClose = null;
+            options.onOpenPauseMenu();
+            setOverlay("pause");
+            break;
+          case "resume-run":
+            state.returnOverlayAfterClose = null;
+            options.onResumeRun();
+            setOverlay("none");
+            break;
+          case "restart-from-pause":
+            state.returnOverlayAfterClose = null;
+            options.onRestartRunFromPause();
+            setOverlay("none");
+            break;
+          case "open-settings-from-pause":
+            state.confirmResetData = false;
+            state.settingsNotice = "";
+            state.settingsDiagnosticsExpanded = false;
+            state.returnOverlayAfterClose = "pause";
+            options.onOpenSettingsFromPause();
+            setOverlay("settings");
+            break;
+          case "open-ranking-from-pause":
+            state.returnOverlayAfterClose = "pause";
+            options.onOpenRankingFromPause();
+            setOverlay("ranking");
+            break;
+          case "request-title-from-pause":
+            setOverlay("pauseTitleConfirm");
+            break;
+          case "cancel-title-from-pause":
+            setOverlay("pause");
+            break;
+          case "confirm-title-from-pause":
+            state.returnOverlayAfterClose = null;
+            options.onConfirmTitleFromPause();
+            setOverlay("none");
             break;
           case "back-to-title":
             options.onBackToTitle();
@@ -2094,6 +2232,7 @@ export function createAppShell(options: AppShellOptions) {
 
     const gameplayNotice = game ? getGameplayNoticeHtml(game) : "";
     const gameplayExpressionStatus = game ? getGameplayExpressionStatusHtml(game) : "";
+    const runMenuButton = game ? getRunMenuButtonHtml(game) : "";
     const touchControls = game ? getTouchControlsHtml(game) : "";
     const resultActions = game ? getGameOverActionsHtml(game) : "";
 
@@ -2110,6 +2249,7 @@ export function createAppShell(options: AppShellOptions) {
         </div>
         ${gameplayNotice}
         ${gameplayExpressionStatus}
+        ${runMenuButton}
         ${touchControls}
         ${resultActions}
         ${getOverlayHtml()}
@@ -2236,15 +2376,17 @@ export function createAppShell(options: AppShellOptions) {
     showSettings() {
       state.confirmResetData = false;
       state.settingsNotice = "";
+      state.returnOverlayAfterClose = null;
       setOverlay("settings");
     },
     showRecoveryMenu() {
       state.confirmResetData = false;
       state.settingsNotice = "";
+      state.returnOverlayAfterClose = null;
       setOverlay("recovery");
     },
     closeOverlay() {
-      setOverlay("none");
+      closeActiveOverlay();
     },
     getOverlay(): OverlayScreen {
       return state.overlay;

@@ -9,6 +9,7 @@ public class GameCenterPlugin: CAPPlugin, CAPBridgedPlugin, GKGameCenterControll
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "isAvailable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "authenticate", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "autoAuthenticate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "submitScore", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reportAchievement", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "showLeaderboard", returnType: CAPPluginReturnPromise),
@@ -19,6 +20,12 @@ public class GameCenterPlugin: CAPPlugin, CAPBridgedPlugin, GKGameCenterControll
     private let defaultLeaderboardId = "leaderboard.best_score"
     private var lastErrorCode = ""
     private var lastErrorMessage = ""
+    private var authInFlight = false
+
+    public override func load() {
+        super.load()
+        NSLog("EMOTION_RUNNER_GAMECENTER native plugin loaded")
+    }
 
     @objc func isAvailable(_ call: CAPPluginCall) {
         NSLog("EMOTION_RUNNER_GAMECENTER isAvailable requested")
@@ -33,23 +40,41 @@ public class GameCenterPlugin: CAPPlugin, CAPBridgedPlugin, GKGameCenterControll
     @objc func authenticate(_ call: CAPPluginCall) {
         NSLog("EMOTION_RUNNER_GAMECENTER authenticate requested")
         DispatchQueue.main.async { [weak self] in
-            self?.authenticateOnMain(call)
+            self?.authenticateOnMain(call, source: "manual")
         }
     }
 
-    private func authenticateOnMain(_ call: CAPPluginCall) {
+    @objc func autoAuthenticate(_ call: CAPPluginCall) {
+        let source = call.getString("source") ?? "auto"
+        NSLog("EMOTION_RUNNER_GAMECENTER autoAuthenticate requested source=%@", source)
+        DispatchQueue.main.async { [weak self] in
+            self?.authenticateOnMain(call, source: source)
+        }
+    }
+
+    private func authenticateOnMain(_ call: CAPPluginCall, source: String) {
         let player = GKLocalPlayer.local
         if player.isAuthenticated {
             clearLastError()
-            NSLog("EMOTION_RUNNER_GAMECENTER authenticate already-authenticated")
-            call.resolve(statusPayload(message: "Game Centerに接続済みです。"))
+            NSLog("EMOTION_RUNNER_GAMECENTER authenticate already-authenticated source=%@", source)
+            call.resolve(statusPayload(message: "Game Centerに接続済みです。", source: source, attempted: true))
             return
         }
 
+        if authInFlight {
+            rememberError(code: "AUTH_IN_FLIGHT", message: "Game Center認証を確認中です。")
+            NSLog("EMOTION_RUNNER_GAMECENTER authenticate skipped in-flight source=%@", source)
+            call.resolve(statusPayload(success: false, message: "Game Center認証を確認中です。", source: source, attempted: false))
+            return
+        }
+
+        authInFlight = true
         var didResolve = false
+        var didReceiveAuthViewController = false
         func finish(_ success: Bool, _ message: String, _ error: Error? = nil) {
             guard !didResolve else { return }
             didResolve = true
+            authInFlight = false
             if let error = error {
                 rememberError(error)
             } else if success {
@@ -58,12 +83,19 @@ public class GameCenterPlugin: CAPPlugin, CAPBridgedPlugin, GKGameCenterControll
                 rememberError(code: "AUTH_FAILED", message: message)
             }
             NSLog(
-                "EMOTION_RUNNER_GAMECENTER authenticate finished success=%@ authenticated=%@ message=%@",
+                "EMOTION_RUNNER_GAMECENTER authenticate finished source=%@ success=%@ authenticated=%@ message=%@",
+                source,
                 success ? "true" : "false",
                 player.isAuthenticated ? "true" : "false",
                 message
             )
-            call.resolve(statusPayload(success: success, message: message))
+            call.resolve(statusPayload(
+                success: success,
+                message: message,
+                source: source,
+                attempted: true,
+                requiresUserAction: didReceiveAuthViewController
+            ))
         }
 
         player.authenticateHandler = { [weak self] viewController, error in
@@ -75,8 +107,14 @@ public class GameCenterPlugin: CAPPlugin, CAPBridgedPlugin, GKGameCenterControll
                 guard !didResolve else { return }
 
                 if let viewController = viewController {
-                    NSLog("EMOTION_RUNNER_GAMECENTER authenticate presenting-view-controller")
-                    self.topViewController()?.present(viewController, animated: true)
+                    didReceiveAuthViewController = true
+                    NSLog("EMOTION_RUNNER_GAMECENTER auth viewController received source=%@", source)
+                    guard let presenter = self.topViewController() else {
+                        finish(false, "Game Center認証画面を表示できませんでした。")
+                        return
+                    }
+                    presenter.present(viewController, animated: true)
+                    NSLog("EMOTION_RUNNER_GAMECENTER auth viewController presented source=%@", source)
                     return
                 }
 
@@ -90,7 +128,8 @@ public class GameCenterPlugin: CAPPlugin, CAPBridgedPlugin, GKGameCenterControll
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 25) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 25) { [weak self] in
+            guard let self = self else { return }
             if !didResolve && !player.isAuthenticated {
                 finish(false, "Game Center認証の応答がありませんでした。設定とサインイン状態を確認してください。")
             }
@@ -213,12 +252,21 @@ public class GameCenterPlugin: CAPPlugin, CAPBridgedPlugin, GKGameCenterControll
         }
     }
 
-    private func statusPayload(success: Bool = true, message: String) -> [String: Any] {
+    private func statusPayload(
+        success: Bool = true,
+        message: String,
+        source: String = "",
+        attempted: Bool = true,
+        requiresUserAction: Bool = false
+    ) -> [String: Any] {
         let player = GKLocalPlayer.local
         return [
             "available": true,
             "authenticated": player.isAuthenticated,
             "success": success,
+            "attempted": attempted,
+            "requiresUserAction": requiresUserAction,
+            "source": source,
             "playerName": player.isAuthenticated ? player.displayName : "",
             "playerGamePlayerID": player.isAuthenticated ? player.gamePlayerID : "",
             "message": message,

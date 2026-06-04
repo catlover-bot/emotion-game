@@ -100,7 +100,7 @@
 
 ## iPhone checks
 
-- [ ] Build 21 がインストールされている
+- [ ] Build 22 がインストールされている
 - [ ] アプリが横画面専用で起動し、縦向きに回転しない
 - [ ] `UIRequiresFullScreen = true` の前提でフルスクリーン表示される
 - [ ] iPhone の「設定」→「表情ランナー」→「カメラ」が ON になっている
@@ -138,6 +138,18 @@
 - [ ] model 読み込み失敗時に `診断情報を表示` から candidate / fetch / XHR の結果を確認できる
 - [ ] 表情認識の実行失敗時も fatal error ではなくタップ操作に切り替わる
 - [ ] 診断情報に current mode / last expression / confidence / face detected / last detection error が表示される
+- [ ] プレイ中の `メニュー` ボタンが横画面の安全な位置に表示され、スコア / ハート / 表情ステータスを隠さない
+- [ ] `メニュー` → `ポーズ` で障害物、スコア、コンボ、フィーバー、当たり判定が止まる
+- [ ] `続ける` で同じランから再開し、重複したゲームループや二重加速が起きない
+- [ ] `最初から` で新しいランが始まり、`タイトルへ` は確認画面を経由する
+- [ ] ポーズ中に `設定` を開いて閉じるとポーズ画面へ戻る
+- [ ] ポーズ中に `ランキング` を開いて閉じるとポーズ画面へ戻る
+- [ ] ポーズ中もBGM/SFX設定、BGMテスト、効果音テストがBuild 21同様に動く
+- [ ] Game Centerが起動後に自動接続を試み、タイトルまたはランキング画面で `接続中` / `接続済み` / `ローカル記録のみ` が分かる
+- [ ] 手動の `Game Center接続` は自動接続のクールダウン中でも再試行できる
+- [ ] ランキング画面の `診断情報をコピー` に build number、native plugin availability、autoAuth attempt、last native error、leaderboard / achievement ID が含まれる
+- [ ] Xcode Console で `EMOTION_RUNNER_GAMECENTER AppViewController loaded` と `EMOTION_RUNNER_GAMECENTER native plugin loaded` を確認できる
+- [ ] Xcode Console で `EMOTION_RUNNER_GAMECENTER autoConnect requested`、`autoAuthenticate requested`、`authenticate finished` を確認できる
 - [ ] 診断情報に MediaPipe init result / raw blendshape mapping / selected expression / sensitivity が表示される
 - [ ] shard の byte 数が `3652 bytes` 前後になっていないことを確認できる
 - [ ] model shard が `.bin` として読み込まれ、`tiny_face_detector_model-shard1.bin` は `193321 bytes`、`face_expression_model-shard1.bin` は `329468 bytes` になっている

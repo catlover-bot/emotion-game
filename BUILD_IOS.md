@@ -66,6 +66,7 @@ npx cap open ios
 - Build 15 は gameplay / rewards polish build です。MediaPipe 表情操作は維持しつつ、ローカル実績、今日のミッション、最高スコア、ローカルランキング画面、Game Center接続準備レイヤーを追加しています。
 - Build 20 では iOS向けの GameKit / Game Center ブリッジを追加しています。接続できない環境ではローカル記録に安全に戻ります。
 - Build 21 は audio / Game Center diagnostic build です。音声ファイルが未配置でも `BGMテスト` / `効果音テスト` で内蔵テスト音源が鳴り、Game Center は native diagnostics と最後のエラーをランキング画面で確認できます。
+- Build 22 は in-run pause menu / Game Center auto-connect build です。プレイ中の `メニュー` から `ポーズ` を開き、`続ける` で同じランに復帰、`最初から` でリスタート、`設定` / `ランキング` から閉じるとポーズに戻ることを確認します。Game Center は起動後、復帰時、ランキング画面表示時に自動接続を試みます。
 - `public/mediapipe` には MediaPipe の wasm runtime と `face_landmarker.task` を同梱しています。TestFlight インストール後は CDN なし / オフラインでも起動できることを確認します。
 - 通常画面では診断ビルド表示を出さず、起動失敗時や `診断情報を表示` を押した場合だけ詳細を確認できます。
 - カメラの再確認時は、Xcode Console で `EMOTION_RUNNER_CAMERA` と `EMOTION_RUNNER_MODEL` を検索すると、試行した制約・`getUserMedia` の失敗理由・video サイズ・model 読み込み結果を追えます。
@@ -136,7 +137,7 @@ PNG アイテムを追加する場合は、画像を以下のいずれかに配�
 
 ## Game Center setup
 
-Build 20 では iOS native plugin と Game Center entitlement を追加しています。Build 21 では native plugin の `getDiagnostics()`、認証タイムアウト、最後のエラー表示、leaderboard / achievement 表示の詳細ログを強化しています。Archive / TestFlight で実際にランキングと実績を使うには、App Store Connect と Xcode の設定が必要です。詳細は `docs/GAME_CENTER.md` も確認してください。
+Build 20 では iOS native plugin と Game Center entitlement を追加しています。Build 21 では native plugin の `getDiagnostics()`、認証タイムアウト、最後のエラー表示、leaderboard / achievement 表示の詳細ログを強化しています。Build 22 では `autoAuthenticate()` を追加し、起動後 / アプリ復帰時 / ランキング表示時に自動接続を試みます。Archive / TestFlight で実際にランキングと実績を使うには、App Store Connect と Xcode の設定が必要です。詳細は `docs/GAME_CENTER.md` も確認してください。
 
 1. Xcode target `App` → `Signing & Capabilities` で `Game Center` が有効になっていることを確認します。
 2. App Store Connect → App → Features / Game Center で leaderboard と achievements を作成します。
@@ -147,6 +148,7 @@ Build 20 では iOS native plugin と Game Center entitlement を追加してい
 
 - ランキング画面の `診断情報をコピー` で native bridge の状態、認証状態、最後のエラー、player id を確認します。
 - Xcode Console / Devices and Simulators Console で `EMOTION_RUNNER_GAMECENTER` を検索します。
+- Build 22 では Console で `AppViewController loaded`、`native plugin loaded`、`autoConnect requested`、`auth viewController presented` を確認します。これらが出ない場合は、Main.storyboard の custom class / Capacitor plugin registration / App Store Connect Game Center 設定を見直します。
 - 認証画面が出ない場合は、iPhone の Game Center サインイン状態、App Store Connect の Game Center 有効化、Archive の entitlements を確認します。
 
 ## Game Center identifiers
