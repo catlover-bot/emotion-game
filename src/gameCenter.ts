@@ -142,8 +142,8 @@ function isIosNative(): boolean {
 }
 
 function getAppBuild(): string {
-  if (typeof window === "undefined") return "22";
-  return window.__EMOTION_RUNNER_BUILD__ ?? "22";
+  if (typeof window === "undefined") return "23";
+  return window.__EMOTION_RUNNER_BUILD__ ?? "23";
 }
 
 function loadLastAutoAuthFailure(): StoredAutoAuthFailure | null {

@@ -2,6 +2,7 @@ import type { ControlMode, ExpressionSensitivity } from "./types";
 import { clearGameProgress } from "./achievements";
 import { clearPendingGameServiceEvents } from "./gameCenter";
 import { clearAudioSettings } from "./audio";
+import { clearCloudRankingLocalData } from "./cloudRanking";
 
 const ONBOARDING_KEY = "emotion-game.onboarding-complete";
 const TUTORIAL_KEY = "emotion-game.tutorial-complete";
@@ -104,6 +105,7 @@ export function clearAppStorage(): void {
     clearGameProgress();
     clearPendingGameServiceEvents();
     clearAudioSettings();
+    clearCloudRankingLocalData();
   } catch {
     // Ignore storage failures so the app can continue.
   }

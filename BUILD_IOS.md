@@ -17,6 +17,15 @@ npm run build
 
 音声ファイルを追加した場合も同じ手順で `npm run build` と `npx cap sync ios` を実行します。音声ファイルが未配置でも、Build 21 以降は内蔵テスト音源の WebAudio フォールバックで BGM / 効果音を確認できます。
 
+オンラインランキングを使う場合は、Vite の環境変数に Firebase Firestore 設定を入れます。未設定でもアプリは `ローカル記録のみ` として動作します。
+
+```bash
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_APP_ID=...
+```
+
 ## 3. Capacitor の iOS プロジェクトへ反映する
 
 ```bash
@@ -67,6 +76,7 @@ npx cap open ios
 - Build 20 では iOS向けの GameKit / Game Center ブリッジを追加しています。接続できない環境ではローカル記録に安全に戻ります。
 - Build 21 は audio / Game Center diagnostic build です。音声ファイルが未配置でも `BGMテスト` / `効果音テスト` で内蔵テスト音源が鳴り、Game Center は native diagnostics と最後のエラーをランキング画面で確認できます。
 - Build 22 は in-run pause menu / Game Center auto-connect build です。プレイ中の `メニュー` から `ポーズ` を開き、`続ける` で同じランに復帰、`最初から` でリスタート、`設定` / `ランキング` から閉じるとポーズに戻ることを確認します。Game Center は起動後、復帰時、ランキング画面表示時に自動接続を試みます。
+- Build 23 は Firebase Firestore online ranking build です。通常のランキングUIでは Game Center を使わず、`emotion_runner_scores` collection の Top 50 と自分の記録を表示します。Firebase設定が無い場合は `ローカル記録のみ` と表示し、ゲームは止まりません。
 - `public/mediapipe` には MediaPipe の wasm runtime と `face_landmarker.task` を同梱しています。TestFlight インストール後は CDN なし / オフラインでも起動できることを確認します。
 - 通常画面では診断ビルド表示を出さず、起動失敗時や `診断情報を表示` を押した場合だけ詳細を確認できます。
 - カメラの再確認時は、Xcode Console で `EMOTION_RUNNER_CAMERA` と `EMOTION_RUNNER_MODEL` を検索すると、試行した制約・`getUserMedia` の失敗理由・video サイズ・model 読み込み結果を追えます。
@@ -76,7 +86,7 @@ npx cap open ios
 - Build 15のゲームループQAでは、開始 → プレイ → 結果 → もう一度 が素早く回れること、獲得コイン、ミッション達成、実績解除トースト、最高スコア更新が分かりやすいことを確認します。
 - Build 16の表情ナビQAでは、タイトル → 表情操作チェック → ゲーム開始 → 結果 → もう一度 / タイトルへ を、できるだけタッチせずに操作できることを確認します。メニュー操作は誤操作防止のためホールド式です。
 - Build 16のガチャQAでは、ガチャ開始、カプセル演出、レアリティ表示、アイテム名、新規 / ダブり表示、装備ボタン、もう一度回すボタンが横画面で重ならないことを確認します。
-- `ランキング` は Game Center接続、Game Centerランキング表示、Game Center実績表示、ローカル記録 fallback を確認します。App Store Connect 側の leaderboard / achievement が未作成でもアプリはクラッシュせず、ローカル記録を表示します。
+- `ランキング` は `自分の記録`、`みんなのランキング`、`更新`、`ニックネーム変更`、`診断情報をコピー` を確認します。Build 23 の通常UIでは Game Center接続 / Game Centerランキング表示 / Game Center実績表示ボタンは表示しません。
 - iPhone SE 系や小さめの横画面では、モーダル本文がスクロールでき、CTA / 結果ボタン / タッチ操作がホームインジケータやノッチに重ならないことを確認してください。
 - MediaPipe asset の確認には `npm run validate:mediapipe` を使います。`face_landmarker.task` や wasm が HTML / Git LFS pointer / 異常に小さいファイルになっていないことを確認します。
 - カメラが起動しても表情認識が動かない場合は、まず `npm run validate:models` を実行してください。Build 8/9 の `tensor should have 576 values but has 116` は、runtime で shard の byte 数が壊れている時に出やすい症状です。
@@ -135,9 +145,43 @@ PNG アイテムを追加する場合は、画像を以下のいずれかに配�
 
 詳細なファイル一覧と追加手順は `docs/COSMETIC_ASSETS.md` にまとめています。
 
+## Firebase Firestore ranking setup
+
+Build 23 では通常ランキングを Firebase Firestore に切り替えています。詳細は `docs/FIREBASE_RANKING.md` を確認してください。
+
+- Collection: `emotion_runner_scores`
+- Sort: `best_score` desc
+- Limit: Top 50
+- Local fallback: Firebase env vars が無い、または送信/取得に失敗した場合もローカル記録を表示
+- Console log: `EMOTION_RUNNER_RANKING`
+
+Firestore に送信するデータ:
+
+- `device_id`
+- `nickname`
+- `best_score`
+- `best_combo`
+- `total_runs`
+- `total_coins`
+- `last_score`
+- `last_combo`
+- `equipped_character`
+- `equipped_background`
+- `equipped_item`
+- `created_at`
+- `updated_at`
+
+送信しないデータ:
+
+- カメラ画像
+- 顔ランドマーク
+- 表情フレーム
+- MediaPipe blendshape / raw expression score
+- 動画、音声、個人アカウント情報
+
 ## Game Center setup
 
-Build 20 では iOS native plugin と Game Center entitlement を追加しています。Build 21 では native plugin の `getDiagnostics()`、認証タイムアウト、最後のエラー表示、leaderboard / achievement 表示の詳細ログを強化しています。Build 22 では `autoAuthenticate()` を追加し、起動後 / アプリ復帰時 / ランキング表示時に自動接続を試みます。Archive / TestFlight で実際にランキングと実績を使うには、App Store Connect と Xcode の設定が必要です。詳細は `docs/GAME_CENTER.md` も確認してください。
+Build 20-22 では iOS native plugin と Game Center entitlement を追加しましたが、Build 23 の通常ランキングUIでは Game Center を使いません。コードは将来の再利用に備えて残していますが、自動接続と通常画面の Game Center ボタンは無効化しています。Game Center を再度使う場合のみ、`docs/GAME_CENTER.md` を確認してください。
 
 1. Xcode target `App` → `Signing & Capabilities` で `Game Center` が有効になっていることを確認します。
 2. App Store Connect → App → Features / Game Center で leaderboard と achievements を作成します。

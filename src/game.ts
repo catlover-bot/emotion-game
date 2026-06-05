@@ -50,9 +50,9 @@ import {
 } from "./achievements";
 import {
   reportAchievement,
-  submitScore,
 } from "./gameCenter";
 import { getLoadedCosmeticImage } from "./cosmeticAssets";
+import { submitCloudRankingRun } from "./cloudRanking";
 
 export type Scene = "title" | "play" | "customize" | "gacha";
 export type RunState = "running" | "paused" | "result";
@@ -567,11 +567,15 @@ export function createGame(canvas: HTMLCanvasElement): Game {
     if (maxCombo >= 10) recordAchievement("combo_10");
     if (maxCombo >= 30) recordAchievement("combo_30");
 
-    void submitScore(score, {
-      mode: currentControlMode,
-      maxCombo,
-    });
     allTimeMaxCombo = saveAllTimeMaxComboIfHigher(maxCombo);
+    void submitCloudRankingRun({
+      score,
+      combo: maxCombo,
+      coinsEarned: lastCoinsEarned,
+      equippedCharacter: cosmetics.equippedCharacterSkinId,
+      equippedBackground: cosmetics.equippedBackgroundSkinId,
+      equippedItem: cosmetics.equippedItemId,
+    });
   }
 
   // ゲームオーバー時にコイン付与

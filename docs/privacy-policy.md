@@ -1,6 +1,6 @@
 # 表情ランナー Privacy Policy / プライバシーポリシー
 
-Last updated: 2026-05-16
+Last updated: 2026-06-05
 
 ## 日本語
 
@@ -23,6 +23,7 @@ Last updated: 2026-05-16
 - コイン
 - スキンや着せ替え状態
 - オンボーディングやチュートリアルの表示状態
+- ランキング用の匿名 device_id とニックネーム
 
 これらのデータは、アプリの利用体験を維持するために端末内へ保存されます。
 
@@ -31,13 +32,16 @@ Last updated: 2026-05-16
 - アプリ内に広告、解析、トラッキング SDK は含まれていません。
 - アカウント登録、ログイン、課金、サブスクリプション機能はありません。
 - ゲーム内から、カメラ画像や表情データを外部サービスへ送信しません。
+- オンラインランキングが有効なビルドでは、Firebase Firestore にニックネーム、匿名 device_id、最高スコア、最高コンボ、プレイ回数、累計コイン、直近スコア、装備中のコスメID、更新日時を送信する場合があります。
+- オンラインランキング送信に失敗した場合でも、ローカル記録は端末内に保存されます。
 
 ### 5. ネットワークアクセスについて
 
 - iOS アプリ版では、ゲームプレイに必要なモデルファイルはアプリ内に同梱されます。
 - そのため、表情認識のために外部サーバーへカメラ映像を送ることはありません。
+- オンラインランキングが有効なビルドでは、ランキング取得とスコア送信のために Firebase Firestore へネットワーク接続します。
 - Web 版を公開した場合、ブラウザは HTML / CSS / JavaScript / モデルファイルなどの静的ファイルをホスティング先から取得します。
-- ただし、その場合でもカメラ映像や表情データ、ゲーム進行データを開発者サーバーへ送信しません。
+- ただし、その場合でもカメラ映像、顔ランドマーク、表情フレーム、MediaPipe blendshape score を開発者サーバーへ送信しません。
 
 ### 6. データの削除
 
@@ -69,6 +73,7 @@ The following gameplay data may be stored locally on the device:
 - Coins
 - Skins and customization state
 - Onboarding and tutorial completion state
+- Anonymous ranking device ID and nickname
 
 This local storage is used only to preserve gameplay progress and user experience.
 
@@ -77,13 +82,16 @@ This local storage is used only to preserve gameplay progress and user experienc
 - The app does not include advertising SDKs, analytics SDKs, or tracking SDKs.
 - The app does not require account registration, login, payments, or subscriptions.
 - The app does not transmit camera images or expression data to external services.
+- If online ranking is enabled in a build, the app may send nickname, anonymous device ID, best score, best combo, total runs, total coins, last score, equipped cosmetic IDs, and timestamps to Firebase Firestore.
+- If online ranking submission fails, local records remain stored on the device.
 
 ### 5. Network Access
 
 - In the iOS app build, the model files required for expression recognition are bundled with the app.
 - No camera frames are sent to an external server for expression recognition.
+- If online ranking is enabled in a build, the app connects to Firebase Firestore to fetch rankings and submit scores.
 - If a web version is published, the browser may download static files such as HTML, CSS, JavaScript, and model files from the hosting provider.
-- Even in the web version, camera frames, expression data, and gameplay progress are not uploaded to the developer's server.
+- Even in the web version, camera frames, face landmarks, expression frames, and MediaPipe blendshape scores are not uploaded to the developer's server.
 
 ### 6. Deleting Data
 

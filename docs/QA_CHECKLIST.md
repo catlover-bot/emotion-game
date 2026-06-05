@@ -69,12 +69,15 @@
 - [ ] 設定とデータ画面からデータリセット確認が動作する
 - [ ] 通常画面に TestFlight 診断ビルドや raw startup stage が表示されない
 - [ ] タイトルに最高スコア、今日のベスト、コイン、今日のミッション、現在の操作モードが表示される
-- [ ] ランキング画面にローカル最高スコア、今日のベスト、最高コンボ、実績数が表示される
-- [ ] Game Center未接続 / 接続中 / 接続済み / ローカル記録のみ表示中 の状態が自然な日本語で分かる
-- [ ] Game Center接続、ランキング表示、実績表示ボタンがクラッシュせず動作または安全に無効化される
-- [ ] ランキング画面で最後のGame Centerエラーが表示される
-- [ ] ランキング画面の `診断情報をコピー` で状態をコピーできる、またはConsoleに出力される
-- [ ] `EMOTION_RUNNER_GAMECENTER` のログが出ても、ユーザー画面には技術用語が出ない
+- [ ] ランキング画面に `自分の記録` と `みんなのランキング` が表示される
+- [ ] Firebase env vars が無い場合、ランキング画面が `ローカル記録のみ` と表示し、アプリがクラッシュしない
+- [ ] Firebase env vars がある場合、ラン終了後に `emotion_runner_scores` へスコアを送信できる
+- [ ] ランキング画面の `更新` で best_score desc の Top 50 を取得できる
+- [ ] `ニックネーム変更` でニックネームが localStorage に保存される
+- [ ] 送信失敗時に `オンラインランキング送信失敗` と `ローカル記録は保存済み` が表示される
+- [ ] 通常ランキングUIに `Game Center接続` / `ランキングを表示` / `実績を表示` ボタンが表示されない
+- [ ] ランキング画面の `診断情報をコピー` でFirebase設定状態、device_id、collection、最後のエラーをコピーできる、またはConsoleに出力される
+- [ ] `EMOTION_RUNNER_RANKING` のログで configured / submit / fetch / local fallback が確認できる
 - [ ] 低い横画面高さでもモーダル本文がスクロールでき、CTA が見える
 - [ ] 重要 UI の z-index が整理され、canvas がメニューやモーダルを覆わない
 
@@ -100,7 +103,7 @@
 
 ## iPhone checks
 
-- [ ] Build 22 がインストールされている
+- [ ] Build 23 がインストールされている
 - [ ] アプリが横画面専用で起動し、縦向きに回転しない
 - [ ] `UIRequiresFullScreen = true` の前提でフルスクリーン表示される
 - [ ] iPhone の「設定」→「表情ランナー」→「カメラ」が ON になっている
@@ -145,11 +148,13 @@
 - [ ] ポーズ中に `設定` を開いて閉じるとポーズ画面へ戻る
 - [ ] ポーズ中に `ランキング` を開いて閉じるとポーズ画面へ戻る
 - [ ] ポーズ中もBGM/SFX設定、BGMテスト、効果音テストがBuild 21同様に動く
-- [ ] Game Centerが起動後に自動接続を試み、タイトルまたはランキング画面で `接続中` / `接続済み` / `ローカル記録のみ` が分かる
-- [ ] 手動の `Game Center接続` は自動接続のクールダウン中でも再試行できる
-- [ ] ランキング画面の `診断情報をコピー` に build number、native plugin availability、autoAuth attempt、last native error、leaderboard / achievement ID が含まれる
-- [ ] Xcode Console で `EMOTION_RUNNER_GAMECENTER AppViewController loaded` と `EMOTION_RUNNER_GAMECENTER native plugin loaded` を確認できる
-- [ ] Xcode Console で `EMOTION_RUNNER_GAMECENTER autoConnect requested`、`autoAuthenticate requested`、`authenticate finished` を確認できる
+- [ ] Game Centerは通常ランキングUIで自動接続を試みず、ランキング画面はFirebase / ローカル記録として表示される
+- [ ] Firebase設定が無いTestFlight buildでも `ローカル記録のみ` と表示され、プレイ、結果、共有、ガチャ、着せ替えが継続できる
+- [ ] Firebase設定があるTestFlight buildではラン終了後にオンラインランキングへ送信される
+- [ ] ランキング画面の `診断情報をコピー` に build number、Firebase configured、collection、device_id、nickname、最後のエラー、送信しないデータ説明が含まれる
+- [ ] Xcode Console で `EMOTION_RUNNER_RANKING firebase configured true/false` を確認できる
+- [ ] Xcode Console で `EMOTION_RUNNER_RANKING submit requested` / `submit success` / `submit failure` を確認できる
+- [ ] Xcode Console で `EMOTION_RUNNER_RANKING fetch ranking requested` / `fetch ranking success` / `fetch ranking failure` を確認できる
 - [ ] 診断情報に MediaPipe init result / raw blendshape mapping / selected expression / sensitivity が表示される
 - [ ] shard の byte 数が `3652 bytes` 前後になっていないことを確認できる
 - [ ] model shard が `.bin` として読み込まれ、`tiny_face_detector_model-shard1.bin` は `193321 bytes`、`face_expression_model-shard1.bin` は `329468 bytes` になっている
@@ -163,11 +168,10 @@
 - [ ] 共有テキストが日本語で自然
 - [ ] 今日のミッション達成時に結果画面で分かりやすく表示される
 - [ ] 実績解除が結果画面とトーストで分かりやすい
-- [ ] ランキング画面で Game Center接続 / ランキング表示 / 実績表示 / ローカルfallback を確認できる
-- [ ] Game Center未設定でもローカル記録だけで安全に使える
-- [ ] `EMOTION_RUNNER_GAMECENTER` の diagnostics / authenticate / submit score / achievement / present log を確認できる
-- [ ] Game Center認証が失敗した場合も画面が固まらず、最後のエラーとローカルfallbackが表示される
-- [ ] Game Center identifier が App Store Connect と `BUILD_IOS.md` で一致している
+- [ ] ランキング画面で Firebase Top 50 / 自分の記録 / ニックネーム変更 / 診断コピーを確認できる
+- [ ] Firebase未設定でもローカル記録だけで安全に使える
+- [ ] Firebase送信が失敗しても画面が固まらず、最後のエラーとローカルfallbackが表示される
+- [ ] Firestoreに camera image / face landmarks / expression frames / blendshape score が保存されていない
 - [ ] ガチャと着せ替えの画面が横向きでスクリーンショット向きに見える
 - [ ] ガチャ演出が長すぎず、音なしでも報酬感がある
 - [ ] PNGコスメを入れた状態で機内モード起動しても画像がローカルから表示される

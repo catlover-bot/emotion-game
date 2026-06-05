@@ -4,7 +4,11 @@ import type { ControlMode, Expression, ExpressionSensitivity } from "./types";
 import type { GameAction, GameSnapshot } from "./game";
 import type { Rarity } from "./cosmetics";
 import type { AudioRuntimeStatus, AudioSettings } from "./audio";
-import type { GameCenterStatus } from "./gameCenter";
+import {
+  getCloudRankingDiagnostics,
+  type CloudRankingEntry,
+  type CloudRankingState,
+} from "./cloudRanking";
 
 export type CameraUiState =
   | "idle"
@@ -64,9 +68,9 @@ type AppShellOptions = {
   onTestBgm(): void;
   onTestSfx(): void;
   onSetExpressionNavHintsVisible(visible: boolean): void;
-  onConnectGameCenter(): void;
-  onShowGameCenterLeaderboard(): void;
-  onShowGameCenterAchievements(): void;
+  rankingState: CloudRankingState;
+  onRefreshRanking(): void;
+  onUpdateRankingNickname(nickname: string): void;
   onUserGesture(): void;
   onOverlayChanged(): void;
   onResetTutorial(): void;
@@ -96,8 +100,9 @@ type AppShellState = {
   audioSettings: AudioSettings;
   audioStatus: AudioRuntimeStatus;
   audioNotice: string;
-  gameCenterStatus: GameCenterStatus;
-  gameCenterDiagnosticsCopied: boolean;
+  rankingState: CloudRankingState;
+  rankingDiagnosticsCopied: boolean;
+  rankingNicknameDraft: string;
   expressionNavHintsVisible: boolean;
   expressionNavFocusIndex: number;
   expressionNavExpression: Expression | null;
@@ -225,11 +230,28 @@ function getRarityClass(rarity: Rarity): string {
   return `rarity-${rarity}`;
 }
 
-function getGameCenterStateLabel(status: GameCenterStatus): string {
-  if (status.connectionState === "connecting") return "Game Center接続中";
-  if (status.authenticated) return "Game Center接続済み";
-  if (status.available && status.usingNative) return "Game Center未接続";
-  return "ローカル記録のみ表示中";
+function getRankingStateLabel(status: CloudRankingState): string {
+  if (!status.configured) return "ローカル記録のみ";
+  if (status.status === "loading") return "ランキング更新中";
+  if (status.status === "submitting") return "送信中";
+  if (status.status === "error") return "送信/取得エラー";
+  return "オンラインランキング";
+}
+
+function formatScore(value: number): string {
+  return value.toLocaleString("ja-JP");
+}
+
+function getRankingEntryRowHtml(entry: CloudRankingEntry): string {
+  const rankClass = entry.rank <= 3 ? ` is-top-${entry.rank}` : "";
+  return `
+    <div class="ranking-row${rankClass}${entry.isMine ? " is-mine" : ""}">
+      <span class="ranking-rank">${entry.rank}</span>
+      <strong>${escapeHtml(entry.nickname)}</strong>
+      <span>${formatScore(entry.bestScore)}点</span>
+      <em>×${formatScore(entry.bestCombo)}</em>
+    </div>
+  `;
 }
 
 function getAudioSourceLabel(source: AudioRuntimeStatus["bgmSource"]): string {
@@ -385,20 +407,9 @@ export function createAppShell(options: AppShellOptions) {
       lastMessage: "音声はまだ確認されていません。",
     },
     audioNotice: "",
-    gameCenterStatus: {
-      available: false,
-      authenticated: false,
-      usingNative: false,
-      connectionState: "local",
-      playerName: "",
-      playerGamePlayerID: "",
-      message: "ローカル記録を表示しています。",
-      lastErrorCode: "",
-      lastErrorMessage: "",
-      supportsGameCenterBridge: false,
-      entitlementDetected: "unknown",
-    },
-    gameCenterDiagnosticsCopied: false,
+    rankingState: options.rankingState,
+    rankingDiagnosticsCopied: false,
+    rankingNicknameDraft: options.rankingState.nickname,
     expressionNavHintsVisible: loadExpressionNavHintsVisible(),
     expressionNavFocusIndex: 0,
     expressionNavExpression: null,
@@ -431,28 +442,16 @@ export function createAppShell(options: AppShellOptions) {
       });
   }
 
-  function getGameCenterDiagnosticsText(): string {
-    return JSON.stringify(
-      {
-        status: state.gameCenterStatus,
-        href: window.location.href,
-        userAgent: navigator.userAgent,
-      },
-      null,
-      2,
-    );
-  }
-
-  async function copyGameCenterDiagnostics() {
+  async function copyRankingDiagnostics() {
     try {
-      await navigator.clipboard?.writeText(getGameCenterDiagnosticsText());
-      state.gameCenterDiagnosticsCopied = true;
+      await navigator.clipboard?.writeText(getCloudRankingDiagnostics());
+      state.rankingDiagnosticsCopied = true;
       state.settingsNotice = "";
       render();
     } catch {
-      console.info("EMOTION_RUNNER_GAMECENTER diagnostics-copy-fallback", getGameCenterDiagnosticsText());
-      state.gameCenterDiagnosticsCopied = false;
-      state.settingsNotice = "診断情報をコピーできませんでした。Xcode Console の EMOTION_RUNNER_GAMECENTER を確認してください。";
+      console.info("EMOTION_RUNNER_RANKING diagnostics-copy-fallback", getCloudRankingDiagnostics());
+      state.rankingDiagnosticsCopied = false;
+      state.settingsNotice = "診断情報をコピーできませんでした。Xcode Console の EMOTION_RUNNER_RANKING を確認してください。";
       render();
     }
   }
@@ -1182,7 +1181,7 @@ export function createAppShell(options: AppShellOptions) {
             <span>最高 ${game.allTimeBest}</span>
             <span>コイン ${game.coins}</span>
             <span>${controlMode.label}</span>
-            <span>${escapeHtml(getGameCenterStateLabel(state.gameCenterStatus))}</span>
+            <span>${escapeHtml(getRankingStateLabel(state.rankingState))}</span>
           </div>
           <div class="title-mission-strip">
             <strong>${escapeHtml(game.missionText.replace("今日のミッション: ", ""))}</strong>
@@ -1718,6 +1717,8 @@ export function createAppShell(options: AppShellOptions) {
             <li>カメラは表情を検出するためだけに使用します。</li>
             <li>カメラ映像は端末内で処理され、保存・送信・共有されません。</li>
             <li>スコア、コイン、スキン、設定などのゲームデータは端末内に保存されます。</li>
+            <li>オンラインランキングでは、ニックネーム、匿名ID、スコア、コンボ、コイン、装備中のコスメIDだけを送信します。</li>
+            <li>カメラ画像、顔ランドマーク、表情フレームはランキングへ送信されません。</li>
           </ul>
         </div>
       </section>
@@ -1802,8 +1803,19 @@ export function createAppShell(options: AppShellOptions) {
   function getRankingHtml() {
     const game = state.game;
     if (!game) return "";
-    const gameCenter = state.gameCenterStatus;
-    const canOpenGameCenter = gameCenter.available && gameCenter.authenticated;
+    const ranking = state.rankingState;
+    const mine = ranking.myRecord;
+    const rankingRows = ranking.topEntries.length
+      ? ranking.topEntries.map(getRankingEntryRowHtml).join("")
+      : `
+        <div class="ranking-empty">
+          <strong>${ranking.configured ? "まだランキングがありません。" : "ローカル記録のみ"}</strong>
+          <span>${ranking.configured ? "更新すると最新のTop 50を取得します。" : "Firebase設定を追加すると、みんなのランキングを表示できます。"}</span>
+        </div>
+      `;
+    const uploadMessage = ranking.uploadFailed
+      ? `<p class="warning-text">オンラインランキング送信失敗。ローカル記録は保存済みです。</p>`
+      : "";
 
     return `
       <section class="modal-screen">
@@ -1816,54 +1828,82 @@ export function createAppShell(options: AppShellOptions) {
             <button type="button" data-action="close-overlay" class="ghost-button">閉じる</button>
           </div>
 
-          <div class="hero-stats ranking-stats">
-            <div class="stat-pill">
-              <span>最高スコア</span>
-              <strong>${game.allTimeBest}</strong>
-            </div>
-            <div class="stat-pill">
-              <span>今日のベスト</span>
-              <strong>${game.dailyBest}</strong>
-            </div>
-            <div class="stat-pill">
-              <span>最高コンボ</span>
-              <strong>×${game.allTimeMaxCombo}</strong>
-            </div>
-            <div class="stat-pill">
-              <span>実績</span>
-              <strong>${game.achievementsUnlockedCount} / ${game.achievementsTotalCount}</strong>
-            </div>
-          </div>
+          <div class="ranking-layout">
+            <section class="online-ranking-card my-ranking-card">
+              <div class="ranking-section-header">
+                <div>
+                  <span class="eyebrow">自分の記録</span>
+                  <h3>${escapeHtml(ranking.nickname)}</h3>
+                </div>
+                <span class="status-chip ${ranking.configured ? "is-good" : "is-warning"}">
+                  ${escapeHtml(getRankingStateLabel(ranking))}
+                </span>
+              </div>
 
-          <div class="game-center-card ${gameCenter.authenticated ? "is-connected" : ""}">
-            <div>
-              <strong>${escapeHtml(getGameCenterStateLabel(gameCenter))}</strong>
-              <span>${escapeHtml(gameCenter.message)}</span>
+              <label class="nickname-editor">
+                <span>ニックネーム</span>
+                <input
+                  type="text"
+                  data-ranking-nickname
+                  maxlength="16"
+                  value="${escapeHtml(state.rankingNicknameDraft)}"
+                  autocomplete="nickname"
+                  inputmode="text"
+                  aria-label="ランキング用ニックネーム"
+                />
+              </label>
+
+              <div class="hero-stats ranking-stats">
+                <div class="stat-pill">
+                  <span>最高スコア</span>
+                  <strong>${formatScore(Math.max(mine.bestScore, game.allTimeBest))}</strong>
+                </div>
+                <div class="stat-pill">
+                  <span>最高コンボ</span>
+                  <strong>×${formatScore(Math.max(mine.bestCombo, game.allTimeMaxCombo))}</strong>
+                </div>
+                <div class="stat-pill">
+                  <span>プレイ回数</span>
+                  <strong>${formatScore(mine.totalRuns)}</strong>
+                </div>
+                <div class="stat-pill">
+                  <span>累計コイン</span>
+                  <strong>${formatScore(mine.totalCoins)}</strong>
+                </div>
+              </div>
+
+              <div class="ranking-message">
+                <strong>${escapeHtml(ranking.motivation)}</strong>
+                <span>${escapeHtml(ranking.message)}</span>
+                ${ranking.lastErrorMessage ? `<small>最後のエラー: ${escapeHtml(ranking.lastErrorMessage)}</small>` : ""}
+                ${uploadMessage}
+              </div>
+
+              <div class="button-row compact-row">
+                <button type="button" data-action="refresh-ranking" class="secondary-button">更新</button>
+                <button type="button" data-action="update-ranking-nickname" class="secondary-button">ニックネーム変更</button>
+                <button type="button" data-action="copy-ranking-diagnostics" class="ghost-button">診断情報をコピー</button>
+              </div>
               ${
-                gameCenter.lastErrorMessage
-                  ? `<span class="warning-text">最後のエラー: ${escapeHtml(gameCenter.lastErrorMessage)}</span>`
+                state.rankingDiagnosticsCopied
+                  ? `<small>診断情報をコピーしました。</small>`
                   : ""
               }
-              ${
-                gameCenter.playerName
-                  ? `<em>プレイヤー: ${escapeHtml(gameCenter.playerName)}</em>`
-                  : ""
-              }
-            </div>
-            <div class="game-center-actions">
-              <button type="button" data-action="connect-game-center" class="secondary-button">
-                ${gameCenter.authenticated ? "再接続" : "Game Center接続"}
-              </button>
-              <button type="button" data-action="show-game-center-leaderboard" class="secondary-button" ${canOpenGameCenter ? "" : "disabled"}>ランキングを表示</button>
-              <button type="button" data-action="show-game-center-achievements" class="ghost-button" ${canOpenGameCenter ? "" : "disabled"}>実績を表示</button>
-              <button type="button" data-action="copy-game-center-diagnostics" class="ghost-button">診断情報をコピー</button>
-            </div>
-            ${
-              state.gameCenterDiagnosticsCopied
-                ? `<small>診断情報をコピーしました。</small>`
-                : ""
-            }
-            <small>接続できない場合も、最高スコア・実績・ミッションは端末内に保存されます。</small>
+            </section>
+
+            <section class="online-ranking-card ranking-list-card">
+              <div class="ranking-section-header">
+                <div>
+                  <span class="eyebrow">みんなのランキング</span>
+                  <h3>Top 50</h3>
+                </div>
+                <span>${ranking.lastUpdatedAt ? `更新 ${new Date(ranking.lastUpdatedAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}` : "未更新"}</span>
+              </div>
+              <div class="ranking-list" role="list" aria-label="オンラインランキングTop 50">
+                ${rankingRows}
+              </div>
+              <small>送信されるのはスコア、コンボ、コイン、ニックネーム、装備中のコスメIDのみです。カメラ画像や表情データは送信されません。</small>
+            </section>
           </div>
 
           <div class="button-row">
@@ -2170,17 +2210,19 @@ export function createAppShell(options: AppShellOptions) {
           case "toggle-expression-nav-hints":
             options.onSetExpressionNavHintsVisible(!state.expressionNavHintsVisible);
             break;
-          case "connect-game-center":
-            options.onConnectGameCenter();
+          case "refresh-ranking":
+            options.onRefreshRanking();
             break;
-          case "show-game-center-leaderboard":
-            options.onShowGameCenterLeaderboard();
+          case "update-ranking-nickname": {
+            const nickname =
+              root.querySelector<HTMLInputElement>("[data-ranking-nickname]")?.value ??
+              state.rankingNicknameDraft;
+            state.rankingNicknameDraft = nickname;
+            options.onUpdateRankingNickname(nickname);
             break;
-          case "show-game-center-achievements":
-            options.onShowGameCenterAchievements();
-            break;
-          case "copy-game-center-diagnostics":
-            copyGameCenterDiagnostics();
+          }
+          case "copy-ranking-diagnostics":
+            copyRankingDiagnostics();
             break;
           case "touch-jump":
             options.onTouchAction("jump");
@@ -2209,6 +2251,12 @@ export function createAppShell(options: AppShellOptions) {
           root.querySelector<HTMLElement>('[data-audio-volume-label="sfx"]')?.replaceChildren(`${rounded}%`);
           options.onSetAudioSettings(state.audioSettings, { render: false });
         }
+      });
+    });
+
+    root.querySelectorAll<HTMLInputElement>("[data-ranking-nickname]").forEach((input) => {
+      input.addEventListener("input", () => {
+        state.rankingNicknameDraft = input.value;
       });
     });
   }
@@ -2353,8 +2401,9 @@ export function createAppShell(options: AppShellOptions) {
       saveExpressionNavHintsVisible(visible);
       render();
     },
-    setGameCenterStatus(status: GameCenterStatus) {
-      state.gameCenterStatus = status;
+    setRankingState(status: CloudRankingState) {
+      state.rankingState = status;
+      state.rankingNicknameDraft = status.nickname;
       render();
     },
     showOnboarding() {

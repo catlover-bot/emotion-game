@@ -1,6 +1,8 @@
 # GAME CENTER
 
-Build 20 では、iOS の GameKit を使う Capacitor native plugin を追加しています。Build 21 では認証、診断、ランキング表示、実績表示のエラー情報を強化しています。Build 22 では自動接続 `autoAuthenticate()` と、native plugin が実際に読み込まれたかを確認するログを追加しています。未ログイン、未設定、Web実行、Game Center利用不可のときはローカル記録へ安全にフォールバックします。
+Build 20 では、iOS の GameKit を使う Capacitor native plugin を追加しています。Build 21 では認証、診断、ランキング表示、実績表示のエラー情報を強化しています。Build 22 では自動接続 `autoAuthenticate()` と、native plugin が実際に読み込まれたかを確認するログを追加しています。
+
+Build 23 では通常のランキングUIを Firebase Firestore に切り替えました。Game Centerコードは将来の再利用に備えて残していますが、通常画面の Game Center 自動接続と `Game Center接続` / `ランキングを表示` / `実績を表示` ボタンは無効化しています。現在のランキング仕様は `docs/FIREBASE_RANKING.md` を確認してください。
 
 ## Xcode Setup
 

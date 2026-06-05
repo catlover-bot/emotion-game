@@ -33,13 +33,12 @@ import {
   type BgmTrack,
 } from "./audio";
 import {
-  autoConnect as autoConnectGameCenter,
-  getStatus as getGameCenterStatus,
-  refreshStatus as refreshGameCenterStatus,
-  showAchievements as showGameCenterAchievements,
-  showLeaderboard as showGameCenterLeaderboard,
-  type GameCenterStatus,
-} from "./gameCenter";
+  getCloudRankingState,
+  refreshCloudRanking,
+  subscribeCloudRanking,
+  updateRankingNickname,
+  type CloudRankingState,
+} from "./cloudRanking";
 
 export type StartupReporter = {
   setStage(stage: string, detail?: string): void;
@@ -184,7 +183,7 @@ export async function startApp(startup: StartupReporter) {
   let controlMode: ControlMode = loadControlMode();
   let expressionSensitivity: ExpressionSensitivity = loadExpressionSensitivity();
   let audioSettings: AudioSettings = loadAudioSettings();
-  let gameCenterStatus: GameCenterStatus = getGameCenterStatus();
+  let rankingState: CloudRankingState = getCloudRankingState();
   let cameraState: CameraUiState = "idle";
   let lastCameraDiagnostics: CameraDiagnostics | null = null;
   let faceLoopStarted = false;
@@ -251,9 +250,9 @@ export async function startApp(startup: StartupReporter) {
     lastSnapshotGachaResultKey = gachaResultKey;
   }
 
-  function setGameCenterStatus(status: GameCenterStatus) {
-    gameCenterStatus = status;
-    appShell?.setGameCenterStatus(gameCenterStatus);
+  function setRankingState(status: CloudRankingState) {
+    rankingState = status;
+    appShell?.setRankingState(rankingState);
   }
 
   function unlockAudioAfterGesture() {
@@ -266,6 +265,7 @@ export async function startApp(startup: StartupReporter) {
 
   const appShell = createAppShell({
     root: uiRoot,
+    rankingState,
     onStartGame() {
       unlockAudioAfterGesture();
       if (!game) return;
@@ -302,7 +302,7 @@ export async function startApp(startup: StartupReporter) {
       unlockAudioAfterGesture();
       audio.playSfx("confirm");
       game?.openRanking();
-      void autoConnectGameCenter("ranking").then(setGameCenterStatus);
+      void refreshCloudRanking().then(setRankingState);
     },
     onBackToTitle() {
       unlockAudioAfterGesture();
@@ -380,7 +380,7 @@ export async function startApp(startup: StartupReporter) {
       console.info("EMOTION_RUNNER_GAME ranking opened from pause");
       game?.pauseRun();
       game?.openRanking();
-      void autoConnectGameCenter("ranking").then(setGameCenterStatus);
+      void refreshCloudRanking().then(setRankingState);
       routeExpression();
     },
     onConfirmTitleFromPause() {
@@ -463,27 +463,16 @@ export async function startApp(startup: StartupReporter) {
       audio.playSfx("confirm");
       appShell.setExpressionNavHintsVisible(visible);
     },
-    onConnectGameCenter() {
+    onRefreshRanking() {
       unlockAudioAfterGesture();
       audio.playSfx("confirm");
-      setGameCenterStatus({
-        ...gameCenterStatus,
-        available: true,
-        usingNative: true,
-        connectionState: "connecting",
-        message: "Game Centerに接続しています…",
-      });
-      void autoConnectGameCenter("manual", { bypassCooldown: true }).then(setGameCenterStatus);
+      void refreshCloudRanking().then(setRankingState);
     },
-    onShowGameCenterLeaderboard() {
+    onUpdateRankingNickname(nickname) {
       unlockAudioAfterGesture();
       audio.playSfx("confirm");
-      void showGameCenterLeaderboard().then(setGameCenterStatus);
-    },
-    onShowGameCenterAchievements() {
-      unlockAudioAfterGesture();
-      audio.playSfx("confirm");
-      void showGameCenterAchievements().then(setGameCenterStatus);
+      setRankingState(updateRankingNickname(nickname));
+      void refreshCloudRanking().then(setRankingState);
     },
     onUserGesture() {
       void audio.unlock();
@@ -505,20 +494,9 @@ export async function startApp(startup: StartupReporter) {
   appShell.setExpressionSensitivity(expressionSensitivity);
   appShell.setAudioSettings(audioSettings);
   appShell.setAudioStatus(audio.getStatus());
-  appShell.setGameCenterStatus(gameCenterStatus);
-  void refreshGameCenterStatus()
-    .then(setGameCenterStatus)
-    .then(() => autoConnectGameCenter("boot"))
-    .then(setGameCenterStatus);
-
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) return;
-    void autoConnectGameCenter("resume").then(setGameCenterStatus);
-  });
-
-  window.addEventListener("focus", () => {
-    void autoConnectGameCenter("resume").then(setGameCenterStatus);
-  });
+  appShell.setRankingState(rankingState);
+  const unsubscribeRanking = subscribeCloudRanking(setRankingState);
+  void refreshCloudRanking().then(setRankingState);
 
   function hasMeaningfulUiContent() {
     const rect = uiRoot.getBoundingClientRect();
@@ -860,6 +838,7 @@ export async function startApp(startup: StartupReporter) {
   }, 1000);
 
   window.addEventListener("pagehide", () => {
+    unsubscribeRanking();
     stopFaceLoop?.();
     stopFaceLoop = null;
     faceLoopStarted = false;
