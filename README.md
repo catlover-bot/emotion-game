@@ -195,6 +195,3 @@ npm run build
 将来的に「表情だけで遊べるカジュアルスマホゲーム」として
 App Store / Google Play への展開を目指しています。
 
-```
-::contentReference[oaicite:0]{index=0}
-```
